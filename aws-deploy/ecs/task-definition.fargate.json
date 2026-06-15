@@ -1,0 +1,79 @@
+{
+  "family": "rag-task-fargate",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ragEcsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/rag-backend:latest",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 8000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "ENVIRONMENT", "value": "production" },
+        { "name": "POSTGRES_SERVER", "value": "RDS_ENDPOINT" },
+        { "name": "POSTGRES_PORT", "value": "5432" },
+        { "name": "POSTGRES_USER", "value": "ragwebui" },
+        { "name": "POSTGRES_DATABASE", "value": "ragwebui" },
+        { "name": "POSTGRES_SCHEMA", "value": "rag_private" },
+        { "name": "VECTOR_STORE_TYPE", "value": "pgvector" },
+        { "name": "AUTH_ENABLED", "value": "false" },
+        { "name": "CHAT_PROVIDER", "value": "openai" },
+        { "name": "EMBEDDINGS_PROVIDER", "value": "openai" },
+        { "name": "UPLOAD_STORAGE", "value": "local" },
+        { "name": "LOCAL_UPLOAD_DIR", "value": "/app/uploads" },
+        { "name": "AWS_REGION", "value": "ap-south-1" }
+      ],
+      "secrets": [
+        {
+          "name": "POSTGRES_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:rag/production/postgres-password"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:rag/production/openai-api-key"
+        },
+        {
+          "name": "SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:rag/production/secret-key"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/rag-task-fargate",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "backend"
+        }
+      }
+    },
+    {
+      "name": "frontend",
+      "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/rag-frontend:latest",
+      "essential": true,
+      "dependsOn": [
+        { "containerName": "backend", "condition": "START" }
+      ],
+      "portMappings": [
+        { "containerPort": 3000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "BACKEND_INTERNAL_URL", "value": "http://127.0.0.1:8000" },
+        { "name": "NEXT_PUBLIC_AUTH_ENABLED", "value": "false" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/rag-task-fargate",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "frontend"
+        }
+      }
+    }
+  ]
+}
