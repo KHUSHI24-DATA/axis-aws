@@ -101,12 +101,18 @@ export const Answer: FC<{
           AnchorHTMLAttributes<HTMLAnchorElement>
       ) => {
         const citationId = props.href?.match(/^(\d+)$/)?.[1];
-        const citation = citationId
-          ? citations[parseInt(citationId) - 1]
-          : null;
+        const citationIndex = citationId ? parseInt(citationId, 10) - 1 : -1;
+        const citation =
+          citationIndex >= 0 && citationIndex < citations.length
+            ? citations[citationIndex]
+            : null;
 
         if (!citation) {
-          return <a>[{props.href}]</a>;
+          return (
+            <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium text-gray-500 bg-gray-100 rounded">
+              [{props.href}]
+            </span>
+          );
         }
 
         const citationInfo =

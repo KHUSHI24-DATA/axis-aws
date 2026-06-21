@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:AWS_PAGER = ""
 $DeployDir = Join-Path $PSScriptRoot ".."
 $EnvFile = Join-Path $DeployDir ".env.deploy"
 $TaskFile = if ($Launch -eq "fargate") {

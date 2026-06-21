@@ -9,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:AWS_PAGER = ""
 $Scripts = $PSScriptRoot
 $DeployDir = Split-Path $Scripts -Parent
 $EnvFile = Join-Path $DeployDir ".env.deploy"

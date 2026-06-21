@@ -19,7 +19,7 @@ class Chat(Base, TimestampMixin):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Relationships
-    messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan", order_by="Message.id")
     user = relationship("User", back_populates="chats")
     knowledge_bases = relationship(
         "KnowledgeBase",

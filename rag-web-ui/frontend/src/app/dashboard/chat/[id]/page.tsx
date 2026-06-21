@@ -110,7 +110,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const fetchChat = async () => {
     try {
       const data: Chat = await api.get(`/api/chat/${params.id}`);
-      const formattedMessages = data.messages.map((msg) => {
+      const sortedMessages = [...data.messages].sort((a, b) => a.id - b.id);
+      const formattedMessages = sortedMessages.map((msg) => {
         if (msg.role !== "assistant" || !msg.content)
           return {
             id: msg.id.toString(),
@@ -238,7 +239,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       .replace(/\[\[([cC])itation/g, "[citation")
       .replace(/[cC]itation:(\d+)]]/g, "citation:$1]")
       .replace(/\[\[([cC]itation:\d+)]](?!])/g, `[$1]`)
-      .replace(/\[[cC]itation:(\d+)]/g, "[citation]($1)");
+      .replace(/\[[cC]itation:(\d+)]/g, "[citation]($1)")
+      .replace(/\[(\d{1,2})\](?!\()/g, "[citation]($1)");
   };
 
   const processedMessages = useMemo(() => {
@@ -284,6 +286,21 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     });
   }, [messages]);
 
+  const getPreviousUserQuestion = (messageId: string): string => {
+    const messageIndex = processedMessages.findIndex((msg) => msg.id === messageId);
+    if (messageIndex <= 0) {
+      return "";
+    }
+
+    for (let i = messageIndex - 1; i >= 0; i -= 1) {
+      if (processedMessages[i].role === "user") {
+        return processedMessages[i].content;
+      }
+    }
+
+    return "";
+  };
+
   // Step 1: Check if feedback is required
   const lastAssistantMessage = processedMessages
     .slice()
@@ -303,21 +320,6 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       fetchChat();
     }
   }, [isLoading]);
-
-  const getPreviousUserQuestion = (messageId: string): string => {
-    const messageIndex = processedMessages.findIndex((msg) => msg.id === messageId);
-    if (messageIndex <= 0) {
-      return "";
-    }
-
-    for (let i = messageIndex - 1; i >= 0; i -= 1) {
-      if (processedMessages[i].role === "user") {
-        return processedMessages[i].content;
-      }
-    }
-
-    return "";
-  };
 
   const canSubmitFeedback = (message: Message): boolean => !Number.isNaN(Number(message.id));
 
@@ -404,13 +406,15 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     <DashboardLayout>
       <div className="flex flex-col h-[calc(100vh-5rem)] relative">
         <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[80px]">
-          {processedMessages.map((message) =>
-            message.role === "assistant" ? (
+          {processedMessages.map((message) => {
+            if (message.role === "assistant") {
+              const userQuestion = getPreviousUserQuestion(message.id);
+              return (
               <div
                 key={message.id}
                 className="flex justify-start items-start space-x-2"
               >
-                <div className="w-8 h-8 flex items-center justify-center">
+                <div className="w-8 h-8 flex items-center justify-center shrink-0">
                   <img
                     src="/logo.png"
                     className="h-8 w-8 rounded-full"
@@ -418,6 +422,12 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                   />
                 </div>
                 <div className="max-w-[80%] rounded-lg px-4 py-2 text-accent-foreground">
+                  {userQuestion && (
+                    <div className="mb-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+                      <span className="font-medium">You: </span>
+                      {userQuestion}
+                    </div>
+                  )}
                   <Answer
                     key={message.id}
                     markdown={message.content}
@@ -448,20 +458,23 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                   </div>
                 </div>
               </div>
-            ) : (
+              );
+            }
+
+            return (
               <div
                 key={message.id}
                 className="flex justify-end items-start space-x-2"
               >
-                <div className="max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground">
-                  {message.content}
+                <div className="max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground min-h-[2.5rem]">
+                  {message.content || "…"}
                 </div>
                 <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
                   <User className="h-5 w-5 text-primary-foreground" />
                 </div>
               </div>
-            )
-          )}
+            );
+          })}
           <div className="flex justify-start">
             {isLoading &&
               processedMessages[processedMessages.length - 1]?.role !=

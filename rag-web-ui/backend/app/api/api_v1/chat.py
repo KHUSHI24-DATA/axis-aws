@@ -99,6 +99,7 @@ def get_chat(
 ) -> Any:
     chat = (
         db.query(Chat)
+        .options(joinedload(Chat.messages))
         .filter(
             Chat.id == chat_id,
             Chat.user_id == current_user.id
@@ -107,6 +108,7 @@ def get_chat(
     )
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+    chat.messages.sort(key=lambda m: m.id)
     return chat
 
 @router.post("/{chat_id}/messages")
