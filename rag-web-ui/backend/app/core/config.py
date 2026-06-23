@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     # Document processing config
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
+    USE_SEMANTIC_CHUNKING: bool = True
+
+    # FAQ generation
+    FAQ_GENERATION_ENABLED: bool = True
+    FAQ_NUM_FAQS: int = 5
+    FAQ_GENERATION_TIMEOUT: int = 60
     LOCAL_UPLOAD_DIR: str = "/app/uploads"
     # local = disk under LOCAL_UPLOAD_DIR; s3 = ephemeral uploads in S3_UPLOAD_BUCKET
     UPLOAD_STORAGE: str = "local"

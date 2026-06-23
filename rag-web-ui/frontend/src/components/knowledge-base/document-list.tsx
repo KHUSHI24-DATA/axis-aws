@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 import { api, ApiError } from "@/lib/api";
 import { FileIcon, defaultStyles } from "react-file-icon";
@@ -13,6 +14,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { DocumentContentFaqs } from "@/components/knowledge-base/document-content-faqs";
 import { FileText } from "lucide-react";
 
 interface Document {
@@ -44,6 +53,7 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reviewDocument, setReviewDocument] = useState<Document | null>(null);
 
   useEffect(() => {
     const fetchDocuments = async () => {
@@ -104,64 +114,105 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Size</TableHead>
-          <TableHead>Created</TableHead>
-          <TableHead>Status</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {documents.map((doc) => (
-          <TableRow key={doc.id}>
-            <TableCell className="font-medium">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6">
-                  {doc.content_type.toLowerCase().includes("pdf") ? (
-                    <FileIcon extension="pdf" {...defaultStyles.pdf} />
-                  ) : doc.content_type.toLowerCase().includes("doc") ? (
-                    <FileIcon extension="doc" {...defaultStyles.docx} />
-                  ) : doc.content_type.toLowerCase().includes("txt") ? (
-                    <FileIcon extension="txt" {...defaultStyles.txt} />
-                  ) : doc.content_type.toLowerCase().includes("md") ? (
-                    <FileIcon extension="md" {...defaultStyles.md} />
-                  ) : (
-                    <FileIcon
-                      extension={doc.file_name.split(".").pop() || ""}
-                      color="#E2E8F0"
-                      labelColor="#94A3B8"
-                    />
-                  )}
-                </div>
-                {doc.file_name}
-              </div>
-            </TableCell>
-            <TableCell>{(doc.file_size / 1024 / 1024).toFixed(2)} MB</TableCell>
-            <TableCell>
-              {formatDistanceToNow(new Date(doc.created_at), {
-                addSuffix: true,
-              })}
-            </TableCell>
-            <TableCell>
-              {doc.processing_tasks.length > 0 && (
-                <Badge
-                  variant={
-                    doc.processing_tasks[0].status === "completed"
-                      ? "secondary" // Green for completed
-                      : doc.processing_tasks[0].status === "failed"
-                      ? "destructive" // Red for failed
-                      : "default" // Default for pending/processing
-                  }
-                >
-                  {doc.processing_tasks[0].status}
-                </Badge>
-              )}
-            </TableCell>
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Size</TableHead>
+            <TableHead>Created</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Review</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {documents.map((doc) => {
+            const isCompleted =
+              doc.processing_tasks.length > 0 &&
+              doc.processing_tasks[0].status === "completed";
+
+            return (
+              <TableRow key={doc.id}>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6">
+                      {doc.content_type.toLowerCase().includes("pdf") ? (
+                        <FileIcon extension="pdf" {...defaultStyles.pdf} />
+                      ) : doc.content_type.toLowerCase().includes("doc") ? (
+                        <FileIcon extension="doc" {...defaultStyles.docx} />
+                      ) : doc.content_type.toLowerCase().includes("txt") ? (
+                        <FileIcon extension="txt" {...defaultStyles.txt} />
+                      ) : doc.content_type.toLowerCase().includes("md") ? (
+                        <FileIcon extension="md" {...defaultStyles.md} />
+                      ) : (
+                        <FileIcon
+                          extension={doc.file_name.split(".").pop() || ""}
+                          color="#E2E8F0"
+                          labelColor="#94A3B8"
+                        />
+                      )}
+                    </div>
+                    {doc.file_name}
+                  </div>
+                </TableCell>
+                <TableCell>{(doc.file_size / 1024 / 1024).toFixed(2)} MB</TableCell>
+                <TableCell>
+                  {formatDistanceToNow(new Date(doc.created_at), {
+                    addSuffix: true,
+                  })}
+                </TableCell>
+                <TableCell>
+                  {doc.processing_tasks.length > 0 && (
+                    <Badge
+                      variant={
+                        doc.processing_tasks[0].status === "completed"
+                          ? "secondary"
+                          : doc.processing_tasks[0].status === "failed"
+                            ? "destructive"
+                            : "default"
+                      }
+                    >
+                      {doc.processing_tasks[0].status}
+                    </Badge>
+                  )}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!isCompleted}
+                    onClick={() => setReviewDocument(doc)}
+                  >
+                    Content & FAQs
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+
+      <Dialog
+        open={reviewDocument != null}
+        onOpenChange={(open) => !open && setReviewDocument(null)}
+      >
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Extracted Content & FAQs</DialogTitle>
+            <DialogDescription>
+              {reviewDocument?.file_name}
+            </DialogDescription>
+          </DialogHeader>
+          {reviewDocument && (
+            <DocumentContentFaqs
+              knowledgeBaseId={knowledgeBaseId}
+              documentId={reviewDocument.id}
+              documentName={reviewDocument.file_name}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
