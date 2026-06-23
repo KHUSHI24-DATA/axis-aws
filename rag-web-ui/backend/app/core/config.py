@@ -167,3 +167,15 @@ def pgvector_engine():
         connect_args=settings.postgres_connect_args,
         pool_pre_ping=True,
     )
+
+
+def resolve_pgvector_connection():
+    """
+    Connection for langchain PGVector.
+
+    Matches optimizations-branch local setup (PGVECTOR_CONNECTION string) while
+    keeping rag_private search_path when POSTGRES_SCHEMA is set.
+    """
+    if settings.PGVECTOR_CONNECTION.strip():
+        return settings.effective_pgvector_connection
+    return pgvector_engine()

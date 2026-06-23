@@ -36,8 +36,32 @@ echo "Running migrations..."
 if alembic upgrade head; then
   echo "Migrations completed successfully"
 else
-  echo "Migration failed"
-  exit 1
+  echo "Migration failed — checking if database is already initialized..."
+  if python -c "
+from sqlalchemy import create_engine, inspect
+from app.core.config import settings
+
+engine = create_engine(
+    settings.get_database_url,
+    connect_args=settings.postgres_connect_args,
+)
+with engine.connect() as conn:
+    schema = settings.effective_postgres_schema
+    inspector = inspect(conn)
+    existing = (
+        set(inspector.get_table_names(schema=schema))
+        if schema
+        else set(inspector.get_table_names())
+    )
+    raise SystemExit(0 if 'users' in existing else 1)
+"; then
+    echo "Existing schema detected; stamping alembic head..."
+    alembic stamp head
+    echo "Alembic stamped to head"
+  else
+    echo "Migration failed and database is not initialized"
+    exit 1
+  fi
 fi
 
 echo "Ensuring schema tables..."

@@ -17,13 +17,6 @@ export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
     ...customHeaders,
   };
 
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token');
-    if (token && !headers['Authorization']) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-  }
-
   // Auto set JSON content type
   if (!headers['Content-Type'] && data && !(data instanceof FormData)) {
     headers['Content-Type'] = 'application/json';

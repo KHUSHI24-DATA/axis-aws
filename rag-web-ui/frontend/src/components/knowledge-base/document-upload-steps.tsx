@@ -360,9 +360,23 @@ export function DocumentUploadSteps({
               onComplete?.();
             }
           } else {
+            const failedTasks = Object.values(data).filter(
+              (task) => task.status === "failed"
+            );
+            const errorDetails = failedTasks
+              .map((task) => {
+                const name =
+                  task.file_name ||
+                  files.find((f) => f.uploadId === task.upload_id)?.file.name ||
+                  "Document";
+                const msg = task.error_message?.trim();
+                return msg ? `${name}: ${msg}` : name;
+              })
+              .join("\n");
             toast({
               title: "Processing completed with errors",
-              description: "Some documents failed to process.",
+              description:
+                errorDetails || "Some documents failed to process.",
               variant: "destructive",
             });
           }

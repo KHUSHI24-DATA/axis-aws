@@ -286,29 +286,51 @@ async def upload_kb_documents(
         file_content = await file.read()
         file_hash = hashlib.sha256(file_content).hexdigest()
 
-        # 2. 检查是否存在完全相同的文件（名称和hash都相同）
+        # 2. Check for an existing document with the same name in this KB
         existing_document = (
             db.query(Document)
             .filter(
                 Document.file_name == file.filename,
-                Document.file_hash == file_hash,
                 Document.knowledge_base_id == kb_id,
             )
             .first()
         )
 
         if existing_document:
-            # 完全相同的文件，直接返回
-            results.append(
-                {
-                    "document_id": existing_document.id,
-                    "file_name": existing_document.file_name,
-                    "status": "exists",
-                    "message": "文件已存在且已处理完成",
-                    "skip_processing": True,
-                }
+            chunk_count = (
+                db.query(DocumentChunk)
+                .filter(DocumentChunk.document_id == existing_document.id)
+                .count()
             )
-            continue
+            if (
+                existing_document.file_hash == file_hash
+                and chunk_count > 0
+            ):
+                results.append(
+                    {
+                        "document_id": existing_document.id,
+                        "file_name": existing_document.file_name,
+                        "status": "exists",
+                        "message": "File already exists and has been processed.",
+                        "skip_processing": True,
+                    }
+                )
+                continue
+            if chunk_count > 0:
+                results.append(
+                    {
+                        "file_name": file.filename,
+                        "status": "error",
+                        "message": (
+                            f"A document named '{file.filename}' already exists in this "
+                            "knowledge base. Delete it first or upload with a different name."
+                        ),
+                        "skip_processing": True,
+                    }
+                )
+                continue
+            db.delete(existing_document)
+            db.commit()
 
         temp_file_name = f"{file_hash[:12]}_{file.filename}"
         try:

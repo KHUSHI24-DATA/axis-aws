@@ -17,7 +17,9 @@ class KnowledgeBase(Base, TimestampMixin):
     # Relationships
     documents = relationship("Document", back_populates="knowledge_base", cascade="all, delete-orphan")
     user = relationship("User", back_populates="knowledge_bases")
-    processing_tasks = relationship("ProcessingTask", back_populates="knowledge_base")
+    processing_tasks = relationship(
+        "ProcessingTask", back_populates="knowledge_base", cascade="all, delete-orphan"
+    )
     chunks = relationship("DocumentChunk", back_populates="knowledge_base", cascade="all, delete-orphan")
     document_uploads = relationship("DocumentUpload", back_populates="knowledge_base", cascade="all, delete-orphan")
 
@@ -36,8 +38,16 @@ class Document(Base, TimestampMixin):
     
     # Relationships
     knowledge_base = relationship("KnowledgeBase", back_populates="documents") 
-    processing_tasks = relationship("ProcessingTask", back_populates="document")
+    processing_tasks = relationship(
+        "ProcessingTask", back_populates="document", cascade="all, delete-orphan"
+    )
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    content = relationship(
+        "DocumentContent", back_populates="document", cascade="all, delete-orphan"
+    )
+    faqs = relationship(
+        "DocumentFAQ", back_populates="document", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         # Ensure file_name is unique within each knowledge base
@@ -110,7 +120,7 @@ class DocumentContent(Base, TimestampMixin):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    document = relationship("Document", backref="content")
+    document = relationship("Document", back_populates="content")
 
 
 class DocumentFAQ(Base, TimestampMixin):
@@ -131,7 +141,7 @@ class DocumentFAQ(Base, TimestampMixin):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # Relationships
-    document = relationship("Document", backref="faqs")
+    document = relationship("Document", back_populates="faqs")
     creator = relationship("User", backref="created_faqs")
     feedbacks = relationship("FAQFeedback", back_populates="faq", cascade="all, delete-orphan")
 

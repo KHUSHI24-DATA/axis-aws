@@ -375,6 +375,31 @@ async def process_document_background(
 
             # 4. 创建文档记录（不保留原文件，仅保留 checksum 引用）
             logger.info(f"Task {task_id}: Creating document record")
+            existing_doc = (
+                db.query(Document)
+                .filter(
+                    Document.knowledge_base_id == kb_id,
+                    Document.file_name == file_name,
+                )
+                .first()
+            )
+            if existing_doc:
+                chunk_count = (
+                    db.query(DocumentChunk)
+                    .filter(DocumentChunk.document_id == existing_doc.id)
+                    .count()
+                )
+                if chunk_count > 0:
+                    raise Exception(
+                        f"File {file_name} already exists in this knowledge base. "
+                        "Delete the existing document or upload with a different name."
+                    )
+                logger.warning(
+                    f"Task {task_id}: Removing orphaned document record {existing_doc.id}"
+                )
+                db.delete(existing_doc)
+                db.commit()
+
             document = Document(
                 file_name=file_name,
                 file_path=f"checksum://{task.document_upload.file_hash}",
@@ -500,9 +525,17 @@ async def process_document_background(
     except Exception as e:
         logger.error(f"Task {task_id}: Error processing document: {str(e)}")
         logger.error(f"Task {task_id}: Stack trace: {traceback.format_exc()}")
-        task.status = "failed"
-        task.error_message = str(e)
-        db.commit()
+        try:
+            db.rollback()
+            task = db.query(ProcessingTask).get(task_id)
+            if task:
+                task.status = "failed"
+                task.error_message = str(e)
+                db.commit()
+        except Exception as commit_error:
+            logger.error(
+                f"Task {task_id}: Failed to persist error status: {commit_error}"
+            )
 
         upload_storage.delete(temp_path)
     finally:

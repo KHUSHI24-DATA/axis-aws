@@ -14,6 +14,7 @@ from app.schemas.faq import (
     FAQCreate,
     FAQUpdate,
     FAQFeedbackRequest,
+    FAQFeedbackResponse,
     FAQStatsResponse,
     DocumentContentResponse,
 )
@@ -230,7 +231,10 @@ def update_faq(
     return faq
 
 
-@router.post("/{kb_id}/documents/{doc_id}/faqs/{faq_id}/feedback")
+@router.post(
+    "/{kb_id}/documents/{doc_id}/faqs/{faq_id}/feedback",
+    response_model=FAQFeedbackResponse,
+)
 def submit_faq_feedback(
     *,
     kb_id: int,
@@ -297,7 +301,7 @@ def submit_faq_feedback(
     db.commit()
     db.refresh(faq)
 
-    return {"status": "success", "faq": faq}
+    return FAQFeedbackResponse(status="success", faq=faq)
 
 
 @router.get("/{kb_id}/documents/{doc_id}/faqs-stats", response_model=FAQStatsResponse)

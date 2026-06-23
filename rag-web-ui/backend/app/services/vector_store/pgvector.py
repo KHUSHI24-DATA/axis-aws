@@ -11,7 +11,7 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_postgres import PGVector
 from pydantic import Field
 
-from app.core.config import pgvector_engine, settings
+from app.core.config import resolve_pgvector_connection
 
 from .base import BaseVectorStore
 
@@ -57,7 +57,7 @@ class PGVectorStore(BaseVectorStore):
         self._store = PGVector(
             embeddings=embedding_function,
             collection_name=collection_name,
-            connection=pgvector_engine(),
+            connection=resolve_pgvector_connection(),
             use_jsonb=True,
         )
 

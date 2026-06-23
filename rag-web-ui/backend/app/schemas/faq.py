@@ -52,6 +52,11 @@ class FAQFeedbackRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class FAQFeedbackResponse(BaseModel):
+    status: str
+    faq: FAQResponse
+
+
 class FAQStatsResponse(BaseModel):
     total_faqs: int
     correct_faqs: int
