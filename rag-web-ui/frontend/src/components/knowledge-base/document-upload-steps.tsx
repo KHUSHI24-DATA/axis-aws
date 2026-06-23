@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Upload, X, Settings, FileText } from "lucide-react";
+import { Loader2, Upload, X, Settings, FileText, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
 import { useDropzone } from "react-dropzone";
@@ -26,6 +26,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { DocumentContentFaqs } from "@/components/knowledge-base/document-content-faqs";
 
 interface DocumentUploadStepsProps {
   knowledgeBaseId: number;
@@ -75,9 +76,16 @@ interface TaskResponse {
 }
 
 interface TaskStatus {
-  document_id: number;
+  document_id: number | null;
   status: "pending" | "processing" | "completed" | "failed";
   error_message?: string;
+  upload_id?: number;
+  file_name?: string;
+}
+
+interface CompletedDocument {
+  documentId: number;
+  fileName: string;
 }
 
 interface TaskStatusMap {
@@ -103,6 +111,12 @@ export function DocumentUploadSteps({
   const [taskStatuses, setTaskStatuses] = useState<{
     [key: number]: TaskStatus;
   }>({});
+  const [completedDocuments, setCompletedDocuments] = useState<
+    CompletedDocument[]
+  >([]);
+  const [reviewDocumentId, setReviewDocumentId] = useState<number | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [chunkSize, setChunkSize] = useState(process.env.NEXT_PUBLIC_CHUNK_SIZE ? Number(process.env.NEXT_PUBLIC_CHUNK_SIZE) : 1000);
   const [chunkOverlap, setChunkOverlap] = useState(process.env.NEXT_PUBLIC_CHUNK_OVERLAP ? Number(process.env.NEXT_PUBLIC_CHUNK_OVERLAP) : 200);
@@ -316,12 +330,35 @@ export function DocumentUploadSteps({
           const hasErrors = Object.values(data).some(
             (task) => task.status === "failed"
           );
+          const successfulDocs = Object.values(data)
+            .filter(
+              (task) => task.status === "completed" && task.document_id != null
+            )
+            .map((task) => ({
+              documentId: task.document_id as number,
+              fileName:
+                task.file_name ||
+                files.find((f) => f.uploadId === task.upload_id)?.file.name ||
+                "Document",
+            }));
+
+          if (successfulDocs.length > 0) {
+            setCompletedDocuments(successfulDocs);
+            setReviewDocumentId(successfulDocs[0].documentId);
+            setCurrentStep(4);
+          }
+
           if (!hasErrors) {
             toast({
               title: "Processing completed",
-              description: "All documents have been processed successfully.",
+              description:
+                successfulDocs.length > 0
+                  ? "Review extracted content and generated FAQs below."
+                  : "All documents have been processed successfully.",
             });
-            onComplete?.();
+            if (successfulDocs.length === 0) {
+              onComplete?.();
+            }
           } else {
             toast({
               title: "Processing completed with errors",
@@ -360,6 +397,7 @@ export function DocumentUploadSteps({
             { step: 1, icon: Upload, label: "Upload" },
             { step: 2, icon: FileText, label: "Preview" },
             { step: 3, icon: Settings, label: "Process" },
+            { step: 4, icon: ClipboardCheck, label: "Review" },
           ].map(({ step, icon: Icon, label }, index, array) => (
             <div
               key={step}
@@ -683,6 +721,55 @@ export function DocumentUploadSteps({
                 )}
               </Button>
             </div>
+          </Card>
+        </TabsContent>
+        <TabsContent value="4" className="mt-6">
+          <Card className="p-6 space-y-6">
+            <div>
+              <h3 className="text-lg font-medium">Extracted Content & FAQs</h3>
+              <p className="text-sm text-muted-foreground">
+                Review the extracted text and verify auto-generated FAQs.
+              </p>
+            </div>
+
+            {completedDocuments.length > 1 && (
+              <Select
+                value={reviewDocumentId?.toString()}
+                onValueChange={(value: string) =>
+                  setReviewDocumentId(parseInt(value))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a document to review" />
+                </SelectTrigger>
+                <SelectContent>
+                  {completedDocuments.map((doc) => (
+                    <SelectItem
+                      key={doc.documentId}
+                      value={doc.documentId.toString()}
+                    >
+                      {doc.fileName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {reviewDocumentId && (
+              <DocumentContentFaqs
+                knowledgeBaseId={knowledgeBaseId}
+                documentId={reviewDocumentId}
+                documentName={
+                  completedDocuments.find(
+                    (doc) => doc.documentId === reviewDocumentId
+                  )?.fileName
+                }
+              />
+            )}
+
+            <Button className="w-full" onClick={() => onComplete?.()}>
+              Done
+            </Button>
           </Card>
         </TabsContent>
       </Tabs>

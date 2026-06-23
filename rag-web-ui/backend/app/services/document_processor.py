@@ -15,17 +15,14 @@ from langchain_community.document_loaders import (
     UnstructuredMarkdownLoader,
     TextLoader,
 )
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LangchainDocument
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.models.knowledge import ProcessingTask, Document, DocumentChunk
+from app.models.knowledge import ProcessingTask, Document, DocumentChunk, DocumentContent, DocumentFAQ
 from app.services.chunk_record import ChunkRecord
-import uuid
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import UnstructuredFileLoader
+from app.services.faq_generator import get_faq_generator
+from app.services.text_splitter import get_text_splitter
 from app.services.vector_store import VectorStoreFactory
 from app.services.embedding.embedding_factory import EmbeddingsFactory
 from app.services.upload_storage import upload_storage
@@ -251,7 +248,7 @@ async def _preview_from_local_path(
 
         # Load and split the document
         documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(
+        text_splitter = get_text_splitter(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
         chunks = text_splitter.split_documents(documents)
@@ -360,7 +357,7 @@ async def process_document_background(
             logger.info(f"Task {task_id}: Document loaded successfully")
 
             logger.info(f"Task {task_id}: Splitting document into chunks")
-            text_splitter = RecursiveCharacterTextSplitter(
+            text_splitter = get_text_splitter(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap
             )
             chunks = text_splitter.split_documents(documents)
@@ -430,12 +427,63 @@ async def process_document_background(
             # 移除 persist() 调用，因为新版本不需要
             logger.info(f"Task {task_id}: Chunks added to vector store")
 
-            # 7. 更新任务状态
+            # 7. Extract content and generate FAQs
+            logger.info(f"Task {task_id}: Extracting document content")
+            try:
+                # Combine all chunk content
+                full_content = "\n\n".join([chunk.page_content for chunk in chunks])
+                
+                # Store extracted content
+                doc_content = DocumentContent(
+                    document_id=document.id,
+                    raw_text=full_content,
+                    content_length=len(full_content),
+                )
+                db.add(doc_content)
+                db.commit()
+                logger.info(f"Task {task_id}: Document content stored ({len(full_content)} chars)")
+                
+                # Generate FAQs using LLM
+                if settings.FAQ_GENERATION_ENABLED:
+                    logger.info(f"Task {task_id}: Starting FAQ generation")
+                    faq_generator = get_faq_generator()
+                    num_faqs = settings.FAQ_NUM_FAQS
+                    
+                    try:
+                        faqs = await faq_generator.generate_faqs(
+                            content=full_content,
+                            num_faqs=num_faqs,
+                            language="English"
+                        )
+                        
+                        # Store FAQs in database
+                        for faq_data in faqs:
+                            faq = DocumentFAQ(
+                                document_id=document.id,
+                                question=faq_data.get("question", ""),
+                                answer=faq_data.get("answer", ""),
+                                confidence_score=faq_data.get("confidence_score", 0.85),
+                                is_auto_generated=True,
+                                feedback_status="pending",
+                            )
+                            db.add(faq)
+                        
+                        db.commit()
+                        logger.info(f"Task {task_id}: Successfully generated and stored {len(faqs)} FAQs")
+                    except Exception as faq_error:
+                        logger.warning(f"Task {task_id}: FAQ generation failed (non-blocking): {str(faq_error)}")
+                        # Don't fail the entire document processing if FAQ generation fails
+                        
+            except Exception as content_error:
+                logger.warning(f"Task {task_id}: Content extraction/FAQ generation failed (non-blocking): {str(content_error)}")
+                # Don't fail the entire document processing
+
+            # 8. 更新任务状态
             logger.info(f"Task {task_id}: Updating task status to completed")
             task.status = "completed"
             task.document_id = document.id  # 更新为新创建的文档ID
 
-            # 8. 更新上传记录状态
+            # 9. 更新上传记录状态
             upload = task.document_upload  # 直接通过关系获取
             if upload:
                 logger.info(
