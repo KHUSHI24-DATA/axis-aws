@@ -621,6 +621,7 @@ export function DocumentUploadSteps({
                   onClick={() => setCurrentStep(3)}
                   variant="secondary"
                   className="flex-1"
+                  disabled={!selectedDocumentId}
                 >
                   Continue
                 </Button>
