@@ -1,5 +1,6 @@
 """FAQ Generation Service - Generates FAQs from document content using LLM"""
 
+import asyncio
 import logging
 import json
 import re
@@ -16,13 +17,69 @@ class FAQGeneratorService:
 
     def __init__(self):
         self.llm = LLMFactory.create()
-        self.max_faqs = 5
-        self.timeout_seconds = 60
+        self.max_faqs = settings.FAQ_MAX_FAQS
+        self.min_faqs = settings.FAQ_MIN_FAQS
+        self.timeout_seconds = settings.FAQ_GENERATION_TIMEOUT
+
+    async def determine_faq_count(self, content: str) -> int:
+        """
+        Ask the LLM how many FAQs are appropriate for the document content.
+        Returns a value between FAQ_MIN_FAQS and FAQ_MAX_FAQS.
+        """
+        word_count = len(content.split())
+        sample = content[:8000]
+        if len(content) > len(sample):
+            sample += "\n... (truncated)"
+
+        prompt = f"""You are reviewing a document to decide how many FAQs should be generated.
+
+Document statistics:
+- Approximately {word_count} words
+- Content sample below
+
+Rules:
+1. Return ONLY a single integer (no explanation, no JSON)
+2. Minimum: {self.min_faqs}, Maximum: {self.max_faqs}
+3. Short or simple documents: fewer FAQs (around {self.min_faqs}-8)
+4. Medium documents: moderate FAQs (around 8-15)
+5. Large or complex documents with many topics: more FAQs (up to {self.max_faqs})
+6. Base the count on how much distinct, FAQ-worthy information is present
+
+Document content:
+{sample}
+
+Number of FAQs to generate:"""
+
+        try:
+            response = await asyncio.to_thread(self.llm.invoke, prompt)
+            response_text = (
+                response.content if hasattr(response, "content") else str(response)
+            )
+            match = re.search(r"\d+", response_text.strip())
+            if not match:
+                raise ValueError(f"No integer in LLM response: {response_text!r}")
+            count = int(match.group(0))
+            count = max(self.min_faqs, min(self.max_faqs, count))
+            logger.info(
+                "LLM determined %s FAQs for document (~%s words)", count, word_count
+            )
+            return count
+        except Exception as exc:
+            logger.warning(
+                "FAQ count LLM call failed, using heuristic fallback: %s", exc
+            )
+            if word_count < 500:
+                return self.min_faqs
+            if word_count < 2000:
+                return min(10, self.max_faqs)
+            if word_count < 5000:
+                return min(18, self.max_faqs)
+            return self.max_faqs
 
     async def generate_faqs(
         self,
         content: str,
-        num_faqs: int = 5,
+        num_faqs: int | None = None,
         language: str = "English",
     ) -> List[Dict[str, any]]:
         """
@@ -37,8 +94,12 @@ class FAQGeneratorService:
             List of FAQ dictionaries with 'question', 'answer', 'confidence_score'
         """
         try:
+            if num_faqs is None:
+                num_faqs = await self.determine_faq_count(content)
+            num_faqs = max(self.min_faqs, min(self.max_faqs, num_faqs))
+
             # Truncate content if too long to avoid token limits
-            max_content_length = 8000
+            max_content_length = 12000
             if len(content) > max_content_length:
                 content = content[:max_content_length] + "\n... (truncated)"
 
@@ -77,7 +138,7 @@ Generate {num_faqs} FAQs now:"""
 
             # Call LLM to generate FAQs
             logger.info(f"Generating {num_faqs} FAQs from document content")
-            response = self.llm.invoke(prompt)
+            response = await asyncio.to_thread(self.llm.invoke, prompt)
             response_text = response.content if hasattr(response, "content") else str(response)
 
             # Parse the JSON response

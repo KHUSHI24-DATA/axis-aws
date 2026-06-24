@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDistanceToNow } from "date-fns";
+import { formatIndiaDateTime, formatIndiaRelativeTime } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
 import { FileIcon, defaultStyles } from "react-file-icon";
 import {
@@ -157,9 +157,12 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                 </TableCell>
                 <TableCell>{(doc.file_size / 1024 / 1024).toFixed(2)} MB</TableCell>
                 <TableCell>
-                  {formatDistanceToNow(new Date(doc.created_at), {
-                    addSuffix: true,
-                  })}
+                  <span
+                    title={`${formatIndiaDateTime(doc.created_at)} IST`}
+                    className="whitespace-nowrap"
+                  >
+                    {formatIndiaRelativeTime(doc.created_at)}
+                  </span>
                 </TableCell>
                 <TableCell>
                   {doc.processing_tasks.length > 0 && (
@@ -197,19 +200,21 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
         open={reviewDocument != null}
         onOpenChange={(open) => !open && setReviewDocument(null)}
       >
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Extracted Content & FAQs</DialogTitle>
             <DialogDescription>
               {reviewDocument?.file_name}
             </DialogDescription>
           </DialogHeader>
           {reviewDocument && (
-            <DocumentContentFaqs
-              knowledgeBaseId={knowledgeBaseId}
-              documentId={reviewDocument.id}
-              documentName={reviewDocument.file_name}
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <DocumentContentFaqs
+                knowledgeBaseId={knowledgeBaseId}
+                documentId={reviewDocument.id}
+                documentName={reviewDocument.file_name}
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>

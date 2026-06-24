@@ -189,7 +189,8 @@ export function DocumentContentFaqs({
             No FAQs were generated for this document.
           </Card>
         ) : (
-          faqs.map((faq) => (
+          <div className="max-h-[min(60vh,600px)] overflow-y-auto space-y-3 pr-1">
+            {faqs.map((faq) => (
             <Card key={faq.id} className="p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-2 flex-1">
@@ -286,7 +287,8 @@ export function DocumentContentFaqs({
                 </div>
               )}
             </Card>
-          ))
+            ))}
+          </div>
         )}
       </div>
     </div>

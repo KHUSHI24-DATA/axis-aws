@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import logging
 from datetime import datetime, timedelta
-from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 import time
 import asyncio
@@ -60,11 +59,6 @@ def _upload_file_bytes(upload: DocumentUpload) -> bytes | None:
         return upload_storage.read_bytes(upload.temp_path)
     return None
 
-
-class TestRetrievalRequest(BaseModel):
-    query: str
-    kb_id: int
-    top_k: int
 
 
 @router.post("", response_model=KnowledgeBaseResponse)
@@ -630,57 +624,3 @@ async def get_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     return document
-
-
-@router.post("/test-retrieval")
-async def test_retrieval(
-    request: TestRetrievalRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Any:
-    """
-    Test retrieval quality for a given query against a knowledge base.
-    """
-    try:
-        kb = (
-            db.query(KnowledgeBase)
-            .filter(
-                KnowledgeBase.id == request.kb_id,
-                KnowledgeBase.user_id == current_user.id,
-            )
-            .first()
-        )
-
-        if not kb:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Knowledge base {request.kb_id} not found",
-            )
-
-        embeddings = EmbeddingsFactory.create()
-
-        vector_store = VectorStoreFactory.create(
-            store_type=settings.VECTOR_STORE_TYPE,
-            collection_name=f"kb_{request.kb_id}",
-            embedding_function=embeddings,
-        )
-
-        results = vector_store.similarity_search_with_score(
-            request.query, k=request.top_k
-        )
-
-        response = []
-        for doc, score in results:
-            response.append(
-                {
-                    "content": doc.page_content,
-                    "metadata": doc.metadata,
-                    "score": float(score),
-                }
-            )
-
-        return {"results": response}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

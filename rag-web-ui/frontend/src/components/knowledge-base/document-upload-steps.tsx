@@ -77,10 +77,20 @@ interface TaskResponse {
 
 interface TaskStatus {
   document_id: number | null;
-  status: "pending" | "processing" | "completed" | "failed";
+  status: "pending" | "processing" | "generating_faqs" | "completed" | "failed";
   error_message?: string;
   upload_id?: number;
   file_name?: string;
+}
+
+const FAQ_GENERATION_MESSAGE =
+  "Generating FAQ from doc please wait, might take up to 2 min";
+
+function getTaskStatusLabel(status: TaskStatus["status"]): string {
+  if (status === "generating_faqs") {
+    return FAQ_GENERATION_MESSAGE;
+  }
+  return status;
 }
 
 interface CompletedDocument {
@@ -690,7 +700,9 @@ export function DocumentUploadSteps({
                               </p>
                               {task && (
                                 <p className="text-xs text-muted-foreground">
-                                  Status: {task.status || "pending"}
+                                  {task.status === "generating_faqs"
+                                    ? FAQ_GENERATION_MESSAGE
+                                    : `Status: ${getTaskStatusLabel(task.status || "pending")}`}
                                 </p>
                               )}
                             </div>
@@ -703,9 +715,16 @@ export function DocumentUploadSteps({
                         </div>
                         {task &&
                           (task.status === "pending" ||
-                            task.status === "processing") && (
+                            task.status === "processing" ||
+                            task.status === "generating_faqs") && (
                             <Progress
-                              value={task.status === "processing" ? 50 : 25}
+                              value={
+                                task.status === "generating_faqs"
+                                  ? 75
+                                  : task.status === "processing"
+                                    ? 50
+                                    : 25
+                              }
                               className="w-full"
                             />
                           )}
@@ -725,7 +744,11 @@ export function DocumentUploadSteps({
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
+                    {Object.values(taskStatuses).some(
+                      (task) => task.status === "generating_faqs"
+                    )
+                      ? FAQ_GENERATION_MESSAGE
+                      : "Processing..."}
                   </>
                 ) : (
                   <>
@@ -738,7 +761,7 @@ export function DocumentUploadSteps({
           </Card>
         </TabsContent>
         <TabsContent value="4" className="mt-6">
-          <Card className="p-6 space-y-6">
+          <Card className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
             <div>
               <h3 className="text-lg font-medium">Extracted Content & FAQs</h3>
               <p className="text-sm text-muted-foreground">

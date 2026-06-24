@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FileIcon, defaultStyles } from "react-file-icon";
-import { ArrowRight, Plus, Settings, Trash2, Search } from "lucide-react";
+import { ArrowRight, Plus, Settings, Trash2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
@@ -121,12 +121,6 @@ export default function KnowledgeBasePage() {
                     className="inline-flex items-center justify-center rounded-md bg-secondary w-8 h-8"
                   >
                     <Settings className="h-4 w-4" />
-                  </Link>
-                  <Link
-                    href={`/dashboard/test-retrieval/${kb.id}`}
-                    className="inline-flex items-center justify-center rounded-md bg-secondary w-8 h-8"
-                  >
-                    <Search className="h-4 w-4" />
                   </Link>
                   <button
                     onClick={() => handleDelete(kb.id)}

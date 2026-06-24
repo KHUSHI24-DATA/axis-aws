@@ -60,6 +60,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+    init: true
     environment:
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true

@@ -249,7 +249,7 @@ async def _preview_from_local_path(
         # Load and split the document
         documents = loader.load()
         text_splitter = get_text_splitter(
-            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap, use_semantic=True
         )
         chunks = text_splitter.split_documents(documents)
 
@@ -356,9 +356,11 @@ async def process_document_background(
             documents = loader.load()
             logger.info(f"Task {task_id}: Document loaded successfully")
 
-            logger.info(f"Task {task_id}: Splitting document into chunks")
+            logger.info(f"Task {task_id}: Splitting document into chunks (semantic)")
             text_splitter = get_text_splitter(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                use_semantic=True,
             )
             chunks = text_splitter.split_documents(documents)
             logger.info(f"Task {task_id}: Document split into {len(chunks)} chunks")
@@ -471,9 +473,12 @@ async def process_document_background(
                 # Generate FAQs using LLM
                 if settings.FAQ_GENERATION_ENABLED:
                     logger.info(f"Task {task_id}: Starting FAQ generation")
+                    task.status = "generating_faqs"
+                    db.commit()
+
                     faq_generator = get_faq_generator()
-                    num_faqs = settings.FAQ_NUM_FAQS
-                    
+                    num_faqs = await faq_generator.determine_faq_count(full_content)
+
                     try:
                         faqs = await faq_generator.generate_faqs(
                             content=full_content,

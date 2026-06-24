@@ -102,6 +102,45 @@ class SemanticParagraphSplitter:
         return overlapped
 
 
+def _create_embedding_semantic_splitter(chunk_size: int, chunk_overlap: int):
+    """Embedding-based semantic chunking via LangChain SemanticChunker."""
+    from langchain_experimental.text_splitter import SemanticChunker
+
+    from app.services.embedding.embedding_factory import EmbeddingsFactory
+
+    embeddings = EmbeddingsFactory.create()
+    chunker = SemanticChunker(
+        embeddings,
+        breakpoint_threshold_type="percentile",
+        breakpoint_threshold_amount=95,
+    )
+    paragraph_fallback = SemanticParagraphSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+
+    class _EmbeddingSemanticSplitter:
+        def split_documents(
+            self, documents: List[LangchainDocument]
+        ) -> List[LangchainDocument]:
+            chunks: List[LangchainDocument] = []
+            for doc in documents:
+                try:
+                    doc_chunks = chunker.split_documents([doc])
+                    if doc_chunks:
+                        chunks.extend(doc_chunks)
+                        continue
+                except Exception as exc:
+                    logger.warning(
+                        "Embedding semantic split failed for document, using paragraph fallback: %s",
+                        exc,
+                    )
+                chunks.extend(paragraph_fallback.split_documents([doc]))
+            return chunks
+
+    return _EmbeddingSemanticSplitter()
+
+
 def get_text_splitter(
     chunk_size: int | None = None,
     chunk_overlap: int | None = None,
@@ -116,14 +155,22 @@ def get_text_splitter(
 
     if use_semantic:
         try:
-            return SemanticParagraphSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-            )
+            return _create_embedding_semantic_splitter(chunk_size, chunk_overlap)
         except Exception as exc:
             logger.warning(
-                "Semantic splitter unavailable, falling back to recursive: %s", exc
+                "Embedding semantic splitter unavailable, using paragraph splitter: %s",
+                exc,
             )
+            try:
+                return SemanticParagraphSplitter(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                )
+            except Exception as inner_exc:
+                logger.warning(
+                    "Semantic splitter unavailable, falling back to recursive: %s",
+                    inner_exc,
+                )
 
     return RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,

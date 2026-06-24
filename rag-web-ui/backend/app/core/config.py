@@ -21,8 +21,9 @@ class Settings(BaseSettings):
 
     # FAQ generation
     FAQ_GENERATION_ENABLED: bool = True
-    FAQ_NUM_FAQS: int = 5
-    FAQ_GENERATION_TIMEOUT: int = 60
+    FAQ_MAX_FAQS: int = 30
+    FAQ_MIN_FAQS: int = 3
+    FAQ_GENERATION_TIMEOUT: int = 120
     LOCAL_UPLOAD_DIR: str = "/app/uploads"
     # local = disk under LOCAL_UPLOAD_DIR; s3 = ephemeral uploads in S3_UPLOAD_BUCKET
     UPLOAD_STORAGE: str = "local"

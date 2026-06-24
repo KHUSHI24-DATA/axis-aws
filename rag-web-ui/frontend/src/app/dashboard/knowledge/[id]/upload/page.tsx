@@ -25,6 +25,7 @@ interface FileStatus {
     | "completed"
     | "error";
   error?: string;
+  processingMessage?: string;
   uploadId?: number;
   taskId?: number;
   documentId?: number;
@@ -204,6 +205,10 @@ export default function UploadPage({ params }: { params: { id: string } }) {
                   : taskStatus.status === "failed"
                   ? "error"
                   : "processing",
+              processingMessage:
+                taskStatus.status === "generating_faqs"
+                  ? "Generating FAQ from doc please wait, might take up to 2 min"
+                  : undefined,
               documentId: taskStatus.document_id || undefined,
               error: taskStatus.error_message || undefined,
             };
@@ -320,7 +325,7 @@ export default function UploadPage({ params }: { params: { id: string } }) {
                       <div className="flex items-center space-x-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span className="text-muted-foreground">
-                          Processing...
+                          {fileStatus.processingMessage || "Processing..."}
                         </span>
                       </div>
                     )}
