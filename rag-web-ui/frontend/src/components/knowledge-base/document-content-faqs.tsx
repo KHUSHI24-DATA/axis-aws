@@ -38,6 +38,16 @@ interface DocumentContentFaqsProps {
   documentId: number;
   documentName?: string;
   className?: string;
+  hideDocumentTitle?: boolean;
+  onFaqsLoaded?: (
+    documentId: number,
+    stats: {
+      total: number;
+      pending: number;
+      correct: number;
+      incorrect: number;
+    }
+  ) => void;
 }
 
 export function DocumentContentFaqs({
@@ -45,6 +55,8 @@ export function DocumentContentFaqs({
   documentId,
   documentName,
   className,
+  hideDocumentTitle = false,
+  onFaqsLoaded,
 }: DocumentContentFaqsProps) {
   const { toast } = useToast();
   const [content, setContent] = useState<DocumentContent | null>(null);
@@ -90,6 +102,22 @@ export function DocumentContentFaqs({
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    setActiveCorrectionId(null);
+    setCorrectionText("");
+    setSubmittingId(null);
+  }, [documentId]);
+
+  useEffect(() => {
+    if (loading || error || !onFaqsLoaded) return;
+    onFaqsLoaded(documentId, {
+      total: faqs.length,
+      pending: faqs.filter((f) => f.feedback_status === "pending").length,
+      correct: faqs.filter((f) => f.feedback_status === "correct").length,
+      incorrect: faqs.filter((f) => f.feedback_status === "incorrect").length,
+    });
+  }, [documentId, loading, error, faqs, onFaqsLoaded]);
+
   const submitFeedback = async (
     faqId: number,
     feedbackType: "correct" | "incorrect",
@@ -97,12 +125,15 @@ export function DocumentContentFaqs({
   ) => {
     setSubmittingId(faqId);
     try {
-      await api.post(
+      const updatedFaq = await api.post(
         `/api/knowledge-base/${knowledgeBaseId}/documents/${documentId}/faqs/${faqId}/feedback`,
         {
           feedback_type: feedbackType,
           corrected_answer: correctedAnswer,
         }
+      );
+      setFaqs((prev) =>
+        prev.map((faq) => (faq.id === faqId ? { ...faq, ...updatedFaq } : faq))
       );
       toast({
         title: feedbackType === "correct" ? "Marked as correct" : "Feedback saved",
@@ -113,7 +144,6 @@ export function DocumentContentFaqs({
       });
       setActiveCorrectionId(null);
       setCorrectionText("");
-      await fetchData();
     } catch (err) {
       toast({
         title: "Feedback failed",
@@ -135,7 +165,9 @@ export function DocumentContentFaqs({
       <Card className={cn("p-6", className)}>
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading extracted content and FAQs...
+          {documentName
+            ? `Loading FAQs for ${documentName}...`
+            : "Loading extracted content and FAQs..."}
         </div>
       </Card>
     );
@@ -154,7 +186,7 @@ export function DocumentContentFaqs({
 
   return (
     <div className={cn("space-y-6", className)}>
-      {documentName && (
+      {documentName && !hideDocumentTitle && (
         <h3 className="text-lg font-medium">{documentName}</h3>
       )}
 
@@ -178,7 +210,7 @@ export function DocumentContentFaqs({
         </AccordionItem>
       </Accordion>
 
-      <div className="space-y-3">
+      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
         <div className="flex items-center justify-between">
           <h4 className="text-base font-medium">Auto-generated FAQs</h4>
           <Badge variant="outline">{faqs.length} items</Badge>
@@ -220,6 +252,7 @@ export function DocumentContentFaqs({
                   type="button"
                   size="sm"
                   variant={faq.feedback_status === "correct" ? "default" : "outline"}
+                  loading={submittingId === faq.id}
                   disabled={submittingId === faq.id}
                   onClick={() => submitFeedback(faq.id, "correct")}
                 >
@@ -261,13 +294,12 @@ export function DocumentContentFaqs({
                         disabled={
                           submittingId === faq.id || !correctionText.trim()
                         }
+                        loading={submittingId === faq.id}
+                        loadingText="Saving..."
                         onClick={() =>
                           submitFeedback(faq.id, "incorrect", correctionText.trim())
                         }
                       >
-                        {submittingId === faq.id ? (
-                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                        ) : null}
                         Save correction
                       </Button>
                       <Button

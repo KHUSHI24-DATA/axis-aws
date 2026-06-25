@@ -165,7 +165,8 @@ async def generate_response(
             "which might reference context in the chat history, "
             "formulate a standalone question which can be understood "
             "without the chat history. Do NOT answer the question, just "
-            "reformulate it if needed and otherwise return it as is."
+            "reformulate it if needed and otherwise return it as is. "
+            "Always write the reformulated question in English."
         )
         contextualize_q_prompt = ChatPromptTemplate.from_messages([
             ("system", contextualize_q_system_prompt),
@@ -188,7 +189,8 @@ async def generate_response(
             "Please limit to 1024 tokens. Do not give any information that is not related to the question, and do not repeat. "
             "Say 'information is missing on' followed by the related topic, if the given context do not provide sufficient information. "
             "If a sentence draws from multiple contexts, please list all applicable citations, like [citation:1][citation:2]. "
-            "Other than code and specific names and citations, your answer must be written in the same language as the question. "
+            "Always respond in English regardless of the language used in the source documents or the user's question. "
+            "Other than code and specific names and citations, your answer must be written in English. "
             "Be concise.\n\nContext: {context}\n\n"
             "Remember: Cite contexts by their position number (1 for first context, 2 for second, etc.) and don't blindly "
             "repeat the contexts verbatim."

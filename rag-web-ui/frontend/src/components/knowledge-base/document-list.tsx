@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DocumentContentFaqs } from "@/components/knowledge-base/document-content-faqs";
+import { PageLoading } from "@/components/ui/loading-indicator";
 import { FileText } from "lucide-react";
 
 interface Document {
@@ -75,16 +76,7 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
   }, [knowledgeBaseId]);
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center p-8">
-        <div className="space-y-4">
-          <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto"></div>
-          <p className="text-muted-foreground animate-pulse">
-            Loading documents...
-          </p>
-        </div>
-      </div>
-    );
+    return <PageLoading message="Loading documents..." />;
   }
 
   if (error) {

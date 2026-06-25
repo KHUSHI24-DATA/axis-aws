@@ -12,6 +12,7 @@ from langchain_postgres import PGVector
 from pydantic import Field
 
 from app.core.config import pgvector_engine, settings
+from app.utils.text_sanitizer import sanitize_documents
 
 from .base import BaseVectorStore
 
@@ -63,7 +64,10 @@ class PGVectorStore(BaseVectorStore):
 
     def add_documents(self, documents: List[Document]) -> None:
         """Add documents to PGVector."""
-        self._store.add_documents(documents)
+        safe_documents = sanitize_documents(documents)
+        if not safe_documents:
+            return
+        self._store.add_documents(safe_documents)
 
     def delete(self, ids: List[str]) -> None:
         """Delete documents from PGVector."""

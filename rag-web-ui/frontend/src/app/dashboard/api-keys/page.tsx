@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
+import { PageLoading } from "@/components/ui/loading-indicator";
 import { api } from "@/lib/api";
 
 export interface APIKey {
@@ -52,6 +53,8 @@ export default function APIKeysPage() {
   const [apiKeys, setApiKeys] = useState<APIKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [newKeyName, setNewKeyName] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isAPIListDialogOpen, setIsAPIListDialogOpen] = useState(false);
@@ -117,10 +120,9 @@ export default function APIKeysPage() {
 
   // 删除 API Key
   const deleteAPIKey = async (id: number) => {
+    setDeletingId(id);
     try {
-      const response = await api.delete(`/api/api-keys/${id}`);
-
-      if (!response.ok) throw new Error("Failed to delete API key");
+      await api.delete(`/api/api-keys/${id}`);
 
       setApiKeys(apiKeys.filter((key) => key.id !== id));
       toast({
@@ -133,13 +135,16 @@ export default function APIKeysPage() {
         description: "Failed to delete API key",
         variant: "destructive",
       });
+    } finally {
+      setDeletingId(null);
     }
   };
 
   // 更新 API Key 状态
   const toggleAPIKeyStatus = async (id: number, currentStatus: boolean) => {
+    setTogglingId(id);
     try {
-      const response = await api.put(`/api/api-keys/${id}`, {
+      await api.put(`/api/api-keys/${id}`, {
         is_active: !currentStatus,
       });
 
@@ -159,10 +164,10 @@ export default function APIKeysPage() {
         description: "Failed to update API key",
         variant: "destructive",
       });
+    } finally {
+      setTogglingId(null);
     }
   };
-
-  // 复制 API Key
   const copyAPIKey = async (id: number, key: string) => {
     try {
       await navigator.clipboard.writeText(key);
@@ -296,8 +301,10 @@ export default function APIKeysPage() {
                   <Button
                     onClick={createAPIKey}
                     disabled={isCreating || !newKeyName.trim()}
+                    loading={isCreating}
+                    loadingText="Creating..."
                   >
-                    {isCreating ? "Creating..." : "Create"}
+                    Create
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -306,6 +313,9 @@ export default function APIKeysPage() {
         </div>
 
         <div className="rounded-md border">
+          {isLoading ? (
+            <PageLoading message="Loading API keys..." />
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -340,6 +350,7 @@ export default function APIKeysPage() {
                   <TableCell>
                     <Switch
                       checked={apiKey.is_active}
+                      disabled={togglingId === apiKey.id}
                       onCheckedChange={() =>
                         toggleAPIKeyStatus(apiKey.id, apiKey.is_active)
                       }
@@ -357,6 +368,8 @@ export default function APIKeysPage() {
                     <Button
                       variant="destructive"
                       size="sm"
+                      loading={deletingId === apiKey.id}
+                      loadingText="Deleting..."
                       onClick={() => deleteAPIKey(apiKey.id)}
                     >
                       Delete
@@ -366,6 +379,7 @@ export default function APIKeysPage() {
               ))}
             </TableBody>
           </Table>
+          )}
         </div>
       </div>
     </DashboardLayout>

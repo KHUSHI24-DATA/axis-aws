@@ -82,4 +82,5 @@ class KnowledgeBaseResponse(KnowledgeBaseBase):
 class PreviewRequest(BaseModel):
     document_ids: List[int]
     chunk_size: int = 1000
-    chunk_overlap: int = 200 
+    chunk_overlap: int = 200
+    use_semantic: bool = True

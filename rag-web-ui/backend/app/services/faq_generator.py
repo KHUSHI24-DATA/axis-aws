@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Tuple
 from langchain_core.prompts import ChatPromptTemplate
 from app.services.llm.llm_factory import LLMFactory
 from app.core.config import settings
+from app.utils.text_sanitizer import sanitize_text
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +17,66 @@ class FAQGeneratorService:
 
     def __init__(self):
         self.llm = LLMFactory.create()
-        self.max_faqs = 5
+        self.max_faqs = 30
+        self.min_faqs = 3
         self.timeout_seconds = 60
+
+    async def determine_faq_count(
+        self,
+        content: str,
+        max_faqs: int = 30,
+        min_faqs: int = 3,
+    ) -> int:
+        """
+        Ask the LLM how many FAQs are appropriate for the document content.
+
+        Returns an integer between min_faqs and max_faqs (inclusive).
+        """
+        max_faqs = min(max_faqs, self.max_faqs)
+        min_faqs = max(min_faqs, self.min_faqs)
+
+        max_content_length = 6000
+        truncated = content
+        if len(content) > max_content_length:
+            truncated = content[:max_content_length] + "\n... (truncated)"
+
+        word_count = len(truncated.split())
+        prompt = (
+            "You are an expert at analyzing documents for FAQ generation.\n"
+            f"Given the document below ({word_count} words), decide how many "
+            f"high-quality FAQ pairs should be generated.\n"
+            f"Return ONLY a single integer between {min_faqs} and {max_faqs}.\n"
+            "Use fewer FAQs for short or simple documents and more for long, "
+            "detailed, or multi-topic documents.\n\n"
+            f"Document content:\n{truncated}\n\n"
+            "Number of FAQs:"
+        )
+
+        try:
+            logger.info("Determining optimal FAQ count from document content")
+            response = self.llm.invoke(prompt)
+            response_text = (
+                response.content if hasattr(response, "content") else str(response)
+            )
+            match = re.search(r"\d+", response_text.strip())
+            if match:
+                count = int(match.group())
+                return max(min_faqs, min(count, max_faqs))
+        except Exception as exc:
+            logger.warning("FAQ count determination failed, using heuristic: %s", exc)
+
+        if word_count < 500:
+            return min_faqs
+        if word_count < 2000:
+            return min(10, max_faqs)
+        if word_count < 5000:
+            return min(20, max_faqs)
+        return max_faqs
 
     async def generate_faqs(
         self,
         content: str,
-        num_faqs: int = 5,
+        num_faqs: int = 10,
         language: str = "English",
     ) -> List[Dict[str, any]]:
         """
@@ -49,12 +103,12 @@ class FAQGeneratorService:
 Given the following document content, generate exactly {num_faqs} important and relevant FAQs that a reader would likely ask.
 
 Requirements:
-1. Generate exactly {num_faqs} Q&A pairs
+1. Generate exactly {num_faqs} Q&A pairs (no more, no less)
 2. Each question should be clear and concise (under 100 words)
 3. Each answer should be informative and based directly on the content (under 200 words)
 4. Include a confidence score (0.0-1.0) indicating how confident you are in the answer's accuracy based on the content
 5. Focus on practical and frequently asked questions
-6. Generate in {language}
+6. Write ALL questions and answers in {language} only
 
 Format your response EXACTLY as valid JSON array like this (no markdown, no extra text):
 [
@@ -117,8 +171,8 @@ Generate {num_faqs} FAQs now:"""
             for item in faqs_data:
                 if isinstance(item, dict) and "question" in item and "answer" in item:
                     faq = {
-                        "question": str(item.get("question", "")).strip(),
-                        "answer": str(item.get("answer", "")).strip(),
+                        "question": sanitize_text(str(item.get("question", ""))).strip(),
+                        "answer": sanitize_text(str(item.get("answer", ""))).strip(),
                         "confidence_score": float(item.get("confidence_score", 0.85)),
                     }
 

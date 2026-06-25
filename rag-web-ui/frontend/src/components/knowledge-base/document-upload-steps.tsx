@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { FileIcon, defaultStyles } from "react-file-icon";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { Loader2, Upload, X, Settings, FileText, ClipboardCheck } from "lucide-r
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
 import { useDropzone } from "react-dropzone";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -77,7 +78,12 @@ interface TaskResponse {
 
 interface TaskStatus {
   document_id: number | null;
-  status: "pending" | "processing" | "completed" | "failed";
+  status:
+    | "pending"
+    | "processing"
+    | "generating_faq"
+    | "completed"
+    | "failed";
   error_message?: string;
   upload_id?: number;
   file_name?: string;
@@ -117,10 +123,73 @@ export function DocumentUploadSteps({
   const [reviewDocumentId, setReviewDocumentId] = useState<number | null>(
     null
   );
+  const [faqStatsByDoc, setFaqStatsByDoc] = useState<
+    Record<
+      number,
+      { total: number; pending: number; correct: number; incorrect: number }
+    >
+  >({});
   const [isLoading, setIsLoading] = useState(false);
   const [chunkSize, setChunkSize] = useState(process.env.NEXT_PUBLIC_CHUNK_SIZE ? Number(process.env.NEXT_PUBLIC_CHUNK_SIZE) : 1000);
   const [chunkOverlap, setChunkOverlap] = useState(process.env.NEXT_PUBLIC_CHUNK_OVERLAP ? Number(process.env.NEXT_PUBLIC_CHUNK_OVERLAP) : 200);
+  const [useSemantic, setUseSemantic] = useState(
+    process.env.NEXT_PUBLIC_USE_SEMANTIC_CHUNKING !== "false"
+  );
   const { toast } = useToast();
+
+  const uploadedFiles = useMemo(
+    () => files.filter((f) => f.status === "uploaded" && f.uploadId != null),
+    [files]
+  );
+
+  const selectedPreview = selectedDocumentId
+    ? uploadedDocuments[selectedDocumentId]
+    : undefined;
+
+  const selectedFileName =
+    uploadedFiles.find((f) => f.uploadId === selectedDocumentId)?.file.name ??
+    "";
+
+  useEffect(() => {
+    if (currentStep !== 2 || uploadedFiles.length === 0) return;
+
+    const selectedStillValid = uploadedFiles.some(
+      (f) => f.uploadId === selectedDocumentId
+    );
+    if (!selectedStillValid) {
+      setSelectedDocumentId(uploadedFiles[0].uploadId ?? null);
+    }
+  }, [currentStep, uploadedFiles, selectedDocumentId]);
+
+  const handleFaqsLoaded = useCallback(
+    (
+      documentId: number,
+      stats: {
+        total: number;
+        pending: number;
+        correct: number;
+        incorrect: number;
+      }
+    ) => {
+      setFaqStatsByDoc((prev) => ({ ...prev, [documentId]: stats }));
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (currentStep !== 4 || completedDocuments.length === 0) return;
+
+    const selectedStillValid = completedDocuments.some(
+      (doc) => doc.documentId === reviewDocumentId
+    );
+    if (!selectedStillValid) {
+      setReviewDocumentId(completedDocuments[0].documentId);
+    }
+  }, [currentStep, completedDocuments, reviewDocumentId]);
+
+  const selectedReviewFileName =
+    completedDocuments.find((doc) => doc.documentId === reviewDocumentId)
+      ?.fileName ?? "";
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setFiles((prev) => [
@@ -195,7 +264,7 @@ export function DocumentUploadSteps({
         })
       );
 
-      // 移除自动处理的逻辑，只更新步骤
+      // Advance to preview step after upload
       setCurrentStep(2);
       toast({
         title: "Upload successful",
@@ -213,30 +282,48 @@ export function DocumentUploadSteps({
     }
   };
 
-  // Step 2: Preview chunks
+  // Step 2: Preview chunks (all uploaded documents)
   const handlePreview = async () => {
-    const selectedFile = files.find(
-      (f) =>
-        f.documentId === selectedDocumentId || f.uploadId === selectedDocumentId
-    );
-    if (!selectedFile) return;
+    const documentIds = uploadedFiles
+      .map((f) => f.uploadId)
+      .filter((id): id is number => id != null);
+
+    if (documentIds.length === 0) return;
 
     setIsLoading(true);
     try {
       const data = await api.post(
         `/api/knowledge-base/${knowledgeBaseId}/documents/preview`,
         {
-          document_ids: [selectedDocumentId],
+          document_ids: documentIds,
           chunk_size: chunkSize,
           chunk_overlap: chunkOverlap,
+          use_semantic: useSemantic,
         }
       );
 
-      setUploadedDocuments(data);
+      setUploadedDocuments((prev) => {
+        const next = { ...prev };
+        for (const docId of documentIds) {
+          const preview =
+            data[docId] ?? data[String(docId)] ?? undefined;
+          if (preview) {
+            next[docId] = preview;
+          }
+        }
+        return next;
+      });
+
+      if (selectedDocumentId == null && documentIds.length > 0) {
+        setSelectedDocumentId(documentIds[0]);
+      }
 
       toast({
         title: "Preview generated",
-        description: "Document preview generated successfully.",
+        description:
+          documentIds.length > 1
+            ? `Generated chunk previews for ${documentIds.length} documents.`
+            : "Document preview generated successfully.",
       });
     } catch (error) {
       toast({
@@ -262,6 +349,9 @@ export function DocumentUploadSteps({
           status: "pending" as const,
           skip_processing: false,
           temp_path: f.tempPath!,
+          chunk_size: chunkSize,
+          chunk_overlap: chunkOverlap,
+          use_semantic: useSemantic,
         }));
 
     if (resultsToProcess.length === 0) return;
@@ -278,13 +368,16 @@ export function DocumentUploadSteps({
         (acc, task) => ({
           ...acc,
           [task.task_id]: {
-            document_id: task.upload_id,
+            document_id: null,
+            upload_id: task.upload_id,
             status: "pending" as const,
           },
         }),
         {}
       );
       setTaskStatuses(initialStatuses);
+
+      setCurrentStep(3);
 
       // Start polling for task status
       pollTaskStatus(data.tasks.map((t) => t.task_id));
@@ -320,7 +413,6 @@ export function DocumentUploadSteps({
 
         setTaskStatuses(data);
 
-        // Check if all tasks are completed or failed
         const allDone = Object.values(data).every(
           (task) => task.status === "completed" || task.status === "failed"
         );
@@ -387,6 +479,30 @@ export function DocumentUploadSteps({
   const handleProcessClick = (e: React.MouseEvent) => {
     e.preventDefault();
     handleProcess();
+  };
+
+  const getTaskForUpload = (uploadId?: number) =>
+    Object.values(taskStatuses).find((t) => t.upload_id === uploadId);
+
+  const isGeneratingFaq = Object.values(taskStatuses).some(
+    (t) => t.status === "generating_faq"
+  );
+
+  const getStatusLabel = (status?: TaskStatus["status"]) => {
+    switch (status) {
+      case "generating_faq":
+        return "Generating FAQs (may take up to 2 min)...";
+      case "processing":
+        return "Processing...";
+      case "pending":
+        return "Queued";
+      case "completed":
+        return "Completed";
+      case "failed":
+        return "Failed";
+      default:
+        return "Pending";
+    }
   };
 
   return (
@@ -508,9 +624,10 @@ export function DocumentUploadSteps({
                 disabled={
                   !files.some((f) => f.status === "pending") || isLoading
                 }
+                loading={isLoading}
+                loadingText="Uploading..."
                 className="w-full"
               >
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Upload Files
               </Button>
             </div>
@@ -520,33 +637,48 @@ export function DocumentUploadSteps({
         <TabsContent value="2" className="mt-6">
           <Card className="p-6">
             <div className="space-y-6">
-              <h3 className="text-lg font-medium">
-                Select Document to Preview
-              </h3>
-              <div className="flex items-center space-x-4">
-                <Select
-                  value={selectedDocumentId?.toString()}
-                  onValueChange={(value: string) =>
-                    setSelectedDocumentId(parseInt(value))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a document to preview" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {files
-                      .filter((f) => f.status === "uploaded")
-                      .map((f) => (
+              {uploadedFiles.length > 1 ? (
+                <div className="space-y-2">
+                  <h3 className="text-lg font-medium">
+                    Select Document to Preview
+                  </h3>
+                  <Select
+                    value={
+                      selectedDocumentId != null
+                        ? String(selectedDocumentId)
+                        : undefined
+                    }
+                    onValueChange={(value: string) =>
+                      setSelectedDocumentId(parseInt(value, 10))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a document to preview" />
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="z-[200]">
+                      {uploadedFiles.map((f) => (
                         <SelectItem
                           key={f.uploadId}
                           value={f.uploadId!.toString()}
                         >
                           {f.file.name}
+                          {uploadedDocuments[f.uploadId!] &&
+                            ` (${uploadedDocuments[f.uploadId!].chunks.length} chunks)`}
                         </SelectItem>
                       ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : uploadedFiles.length === 1 ? (
+                <div>
+                  <h3 className="text-lg font-medium">
+                    {uploadedFiles[0].file.name}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Preview chunks for this document below
+                  </p>
+                </div>
+              ) : null}
 
               <Accordion type="single" collapsible className="w-full">
                 <AccordionItem value="settings">
@@ -560,7 +692,7 @@ export function DocumentUploadSteps({
                           type="number"
                           value={chunkSize}
                           onChange={(e) =>
-                            setChunkSize(parseInt(e.target.value))
+                            setChunkSize(parseInt(e.target.value, 10) || 1000)
                           }
                         />
                       </div>
@@ -573,8 +705,24 @@ export function DocumentUploadSteps({
                           type="number"
                           value={chunkOverlap}
                           onChange={(e) =>
-                            setChunkOverlap(parseInt(e.target.value))
+                            setChunkOverlap(parseInt(e.target.value, 10) || 200)
                           }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
+                        <div className="space-y-1">
+                          <Label htmlFor="semantic-chunking">
+                            Semantic Chunking
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Split at paragraph and sentence boundaries for more
+                            coherent chunks
+                          </p>
+                        </div>
+                        <Switch
+                          id="semantic-chunking"
+                          checked={useSemantic}
+                          onCheckedChange={setUseSemantic}
                         />
                       </div>
                     </div>
@@ -585,13 +733,18 @@ export function DocumentUploadSteps({
               <div className="flex space-x-4">
                 <Button
                   onClick={handlePreview}
-                  disabled={isLoading || !selectedDocumentId}
+                  disabled={isLoading || uploadedFiles.length === 0}
+                  loading={isLoading}
+                  loadingText={
+                    uploadedFiles.length > 1
+                      ? "Previewing all..."
+                      : "Previewing..."
+                  }
                   className="flex-1"
                 >
-                  {isLoading && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Preview Chunks
+                  {uploadedFiles.length > 1
+                    ? "Preview All Chunks"
+                    : "Preview Chunks"}
                 </Button>
                 <Button
                   onClick={() => setCurrentStep(3)}
@@ -602,23 +755,26 @@ export function DocumentUploadSteps({
                 </Button>
               </div>
 
-              {selectedDocumentId && uploadedDocuments[selectedDocumentId] && (
+              {selectedDocumentId && selectedPreview && (
                 <div className="space-y-4">
                   <div className="mt-4">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-medium">
-                        {
-                          files.find((f) => f.uploadId === selectedDocumentId)
-                            ?.file.name
-                        }
-                      </h3>
-                      <span className="text-sm text-muted-foreground">
-                        {uploadedDocuments[selectedDocumentId].chunks.length}{" "}
-                        chunks
+                      {uploadedFiles.length > 1 && (
+                        <h3 className="text-lg font-medium">
+                          {selectedFileName}
+                        </h3>
+                      )}
+                      <span
+                        className={cn(
+                          "text-sm text-muted-foreground",
+                          uploadedFiles.length === 1 && "ml-auto"
+                        )}
+                      >
+                        {selectedPreview.chunks.length} chunks
                       </span>
                     </div>
                     <div className="h-[400px] overflow-y-auto space-y-2 rounded-lg border p-4">
-                      {uploadedDocuments[selectedDocumentId].chunks.map(
+                      {selectedPreview.chunks.map(
                         (chunk: PreviewChunk, index: number) => (
                           <div
                             key={index}
@@ -637,6 +793,17 @@ export function DocumentUploadSteps({
                   </div>
                 </div>
               )}
+
+              {selectedDocumentId && !selectedPreview && !isLoading && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Click &quot;
+                  {uploadedFiles.length > 1
+                    ? "Preview All Chunks"
+                    : "Preview Chunks"}
+                  &quot; to generate chunk previews
+                  {uploadedFiles.length > 1 ? " for all documents" : ""}.
+                </p>
+              )}
             </div>
           </Card>
         </TabsContent>
@@ -647,9 +814,13 @@ export function DocumentUploadSteps({
                 {files
                   .filter((f) => f.status === "uploaded")
                   .map((file) => {
-                    const task = Object.values(taskStatuses).find(
-                      (t) => t.document_id === file.documentId
-                    );
+                    const task = getTaskForUpload(file.uploadId);
+                    const progressValue =
+                      task?.status === "generating_faq"
+                        ? 85
+                        : task?.status === "processing"
+                          ? 50
+                          : 25;
                     return (
                       <div
                         key={file.uploadId}
@@ -676,7 +847,7 @@ export function DocumentUploadSteps({
                               </p>
                               {task && (
                                 <p className="text-xs text-muted-foreground">
-                                  Status: {task.status || "pending"}
+                                  Status: {getStatusLabel(task.status)}
                                 </p>
                               )}
                             </div>
@@ -689,9 +860,10 @@ export function DocumentUploadSteps({
                         </div>
                         {task &&
                           (task.status === "pending" ||
-                            task.status === "processing") && (
+                            task.status === "processing" ||
+                            task.status === "generating_faq") && (
                             <Progress
-                              value={task.status === "processing" ? 50 : 25}
+                              value={progressValue}
                               className="w-full"
                             />
                           )}
@@ -706,64 +878,84 @@ export function DocumentUploadSteps({
                   isLoading ||
                   files.filter((f) => f.status === "uploaded").length === 0
                 }
+                loading={isLoading}
+                loadingText={
+                  isGeneratingFaq
+                    ? "Generating FAQ from doc, please wait. May take up to 2 min."
+                    : "Processing..."
+                }
                 className="w-full"
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Process
-                  </>
-                )}
+                <Settings className="mr-2 h-4 w-4" />
+                Process
               </Button>
             </div>
           </Card>
         </TabsContent>
         <TabsContent value="4" className="mt-6">
-          <Card className="p-6 space-y-6">
+          <Card className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
             <div>
               <h3 className="text-lg font-medium">Extracted Content & FAQs</h3>
               <p className="text-sm text-muted-foreground">
-                Review the extracted text and verify auto-generated FAQs.
+                Review extracted text and verify auto-generated FAQs for each
+                document.
               </p>
             </div>
 
-            {completedDocuments.length > 1 && (
-              <Select
-                value={reviewDocumentId?.toString()}
-                onValueChange={(value: string) =>
-                  setReviewDocumentId(parseInt(value))
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a document to review" />
-                </SelectTrigger>
-                <SelectContent>
-                  {completedDocuments.map((doc) => (
-                    <SelectItem
-                      key={doc.documentId}
-                      value={doc.documentId.toString()}
-                    >
-                      {doc.fileName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            {completedDocuments.length > 1 ? (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Select document to review</h4>
+                <Select
+                  value={
+                    reviewDocumentId != null
+                      ? String(reviewDocumentId)
+                      : undefined
+                  }
+                  onValueChange={(value: string) =>
+                    setReviewDocumentId(parseInt(value, 10))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a document to review" />
+                  </SelectTrigger>
+                  <SelectContent position="popper" className="z-[200]">
+                    {completedDocuments.map((doc) => {
+                      const stats = faqStatsByDoc[doc.documentId];
+                      const statsLabel = stats
+                        ? ` — ${stats.total} FAQs (${stats.pending} pending)`
+                        : "";
+                      return (
+                        <SelectItem
+                          key={doc.documentId}
+                          value={doc.documentId.toString()}
+                        >
+                          {doc.fileName}
+                          {statsLabel}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : completedDocuments.length === 1 ? (
+              <div>
+                <h4 className="text-lg font-medium">
+                  {completedDocuments[0].fileName}
+                </h4>
+                <p className="text-sm text-muted-foreground">
+                  Review FAQs and mark each as correct or incorrect
+                </p>
+              </div>
+            ) : null}
 
             {reviewDocumentId && (
               <DocumentContentFaqs
+                key={reviewDocumentId}
                 knowledgeBaseId={knowledgeBaseId}
                 documentId={reviewDocumentId}
-                documentName={
-                  completedDocuments.find(
-                    (doc) => doc.documentId === reviewDocumentId
-                  )?.fileName
-                }
+                documentName={selectedReviewFileName}
+                hideDocumentTitle
+                onFaqsLoaded={handleFaqsLoaded}
               />
             )}
 

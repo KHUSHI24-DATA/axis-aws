@@ -38,12 +38,12 @@ export default function KnowledgeBasePage() {
               Add Document
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add Document</DialogTitle>
               <DialogDescription>
                 Upload a document to your knowledge base. Supported formats:
-                PDF, DOCX, Markdown, and Text files.
+                PDF, DOCX, TXT, MD, PPTX, and XLSX files.
               </DialogDescription>
             </DialogHeader>
             <DocumentUploadSteps

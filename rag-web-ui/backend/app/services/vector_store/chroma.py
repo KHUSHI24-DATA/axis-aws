@@ -4,6 +4,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_chroma import Chroma
 import chromadb 
 from app.core.config import settings
+from app.utils.text_sanitizer import sanitize_documents
 
 from .base import BaseVectorStore
 
@@ -24,7 +25,10 @@ class ChromaVectorStore(BaseVectorStore):
         )
     def add_documents(self, documents: List[Document]) -> None:
         """Add documents to Chroma"""
-        self._store.add_documents(documents)
+        safe_documents = sanitize_documents(documents)
+        if not safe_documents:
+            return
+        self._store.add_documents(safe_documents)
     
     def delete(self, ids: List[str]) -> None:
         """Delete documents from Chroma"""

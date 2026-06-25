@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FileIcon, defaultStyles } from "react-file-icon";
-import { ArrowRight, Plus, Settings, Trash2, Search } from "lucide-react";
+import { ArrowRight, Plus, Settings, Trash2, Search, Loader2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { Button } from "@/components/ui/button";
+import { PageLoading } from "@/components/ui/loading-indicator";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -30,6 +32,7 @@ interface Document {
 export default function KnowledgeBasePage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -57,6 +60,7 @@ export default function KnowledgeBasePage() {
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this knowledge base?"))
       return;
+    setDeletingId(id);
     try {
       await api.delete(`/api/knowledge-base/${id}`);
       setKnowledgeBases((prev) => prev.filter((kb) => kb.id !== id));
@@ -73,6 +77,8 @@ export default function KnowledgeBasePage() {
           variant: "destructive",
         });
       }
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -128,12 +134,20 @@ export default function KnowledgeBasePage() {
                   >
                     <Search className="h-4 w-4" />
                   </Link>
-                  <button
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 bg-destructive/10 hover:bg-destructive/20"
+                    disabled={deletingId === kb.id}
                     onClick={() => handleDelete(kb.id)}
-                    className="inline-flex items-center justify-center rounded-md bg-destructive/10 hover:bg-destructive/20 w-8 h-8"
                   >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </button>
+                    {deletingId === kb.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    )}
+                  </Button>
                 </div>
               </div>
 
@@ -203,16 +217,7 @@ export default function KnowledgeBasePage() {
             </div>
           )}
 
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="space-y-4">
-                <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto"></div>
-                <p className="text-muted-foreground animate-pulse">
-                  Loading knowledge bases...
-                </p>
-              </div>
-            </div>
-          )}
+          {loading && <PageLoading message="Loading knowledge bases..." />}
         </div>
       </div>
     </DashboardLayout>

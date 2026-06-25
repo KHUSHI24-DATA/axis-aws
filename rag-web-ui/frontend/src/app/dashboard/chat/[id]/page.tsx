@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
 import { Send, User, ThumbsDown, ThumbsUp } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { PageLoading } from "@/components/ui/loading-indicator";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { Answer } from "@/components/chat/answer";
@@ -68,11 +69,16 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isChatLoading, setIsChatLoading] = useState(true);
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [selectedFeedbackMessage, setSelectedFeedbackMessage] =
     useState<Message | null>(null);
   const [feedbackDescription, setFeedbackDescription] = useState("");
   const [correctedAnswer, setCorrectedAnswer] = useState("");
+  const [feedbackSubmittingId, setFeedbackSubmittingId] = useState<string | null>(
+    null
+  );
+  const [isSavingFeedback, setIsSavingFeedback] = useState(false);
   const prevLoadingRef = useRef(false);
 
   const {
@@ -108,6 +114,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   }, [messages, isInitialLoad]);
 
   const fetchChat = async () => {
+    setIsChatLoading(true);
     try {
       const data: Chat = await api.get(`/api/chat/${params.id}`);
       const sortedMessages = [...data.messages].sort((a, b) => a.id - b.id);
@@ -189,6 +196,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
         });
       }
       router.push("/dashboard/chat");
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
@@ -333,6 +342,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     }
 
     const userQuery = getPreviousUserQuestion(message.id);
+    setFeedbackSubmittingId(message.id);
     try {
       await api.post(`/api/chat/${params.id}/messages/${message.id}/feedback`, {
         feedback_type: "up",
@@ -351,6 +361,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           error instanceof ApiError ? error.message : "Something went wrong",
         variant: "destructive",
       });
+    } finally {
+      setFeedbackSubmittingId(null);
     }
   };
 
@@ -373,6 +385,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       return;
     }
     const userQuery = getPreviousUserQuestion(selectedFeedbackMessage.id);
+    setIsSavingFeedback(true);
     try {
       await api.post(
         `/api/chat/${params.id}/messages/${selectedFeedbackMessage.id}/feedback`,
@@ -399,11 +412,16 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           error instanceof ApiError ? error.message : "Something went wrong",
         variant: "destructive",
       });
+    } finally {
+      setIsSavingFeedback(false);
     }
   };
 
   return (
     <DashboardLayout>
+      {isChatLoading && messages.length === 0 ? (
+        <PageLoading message="Loading chat..." />
+      ) : (
       <div className="flex flex-col h-[calc(100vh-5rem)] relative">
         <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[80px]">
           {processedMessages.map((message) => {
@@ -438,6 +456,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                       type="button"
                       variant={message.feedbackType === "up" ? "default" : "outline"}
                       size="sm"
+                      loading={feedbackSubmittingId === message.id}
+                      disabled={feedbackSubmittingId === message.id}
                       onClick={() => handleThumbsUp(message)}
                     >
                       <ThumbsUp className="h-4 w-4" />
@@ -446,6 +466,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                       type="button"
                       variant={message.feedbackType === "down" ? "default" : "outline"}
                       size="sm"
+                      disabled={feedbackSubmittingId === message.id}
                       onClick={() => openThumbsDownDialog(message)}
                     >
                       <ThumbsDown className="h-4 w-4" />
@@ -505,15 +526,18 @@ export default function ChatPage({ params }: { params: { id: string } }) {
             disabled={isFeedbackRequired || isLoading}
             className="flex-1 min-w-0 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
           />
-          <button
+          <Button
             type="submit"
             disabled={isLoading || !input.trim() || isFeedbackRequired}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+            loading={isLoading}
+            size="icon"
+            className="shrink-0"
           >
             <Send className="h-4 w-4" />
-          </button>
+          </Button>
         </form>
       </div>
+      )}
       <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -551,7 +575,12 @@ export default function ChatPage({ params }: { params: { id: string } }) {
             <Button
               type="button"
               onClick={submitThumbsDown}
-              disabled={!correctedAnswer.trim() && !feedbackDescription.trim()}
+              disabled={
+                isSavingFeedback ||
+                (!correctedAnswer.trim() && !feedbackDescription.trim())
+              }
+              loading={isSavingFeedback}
+              loadingText="Saving..."
             >
               Save feedback
             </Button>

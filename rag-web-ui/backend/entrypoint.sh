@@ -33,11 +33,18 @@ print('pgvector extension and schema ready')
 " || echo "pgvector/schema step skipped"
 
 echo "Running migrations..."
+python -m app.startup.repair_alembic || echo "Alembic repair step skipped"
 if alembic upgrade head; then
   echo "Migrations completed successfully"
 else
-  echo "Migration failed"
-  exit 1
+  echo "Migration failed, attempting Alembic repair and retry..."
+  python -m app.startup.repair_alembic --force-stamp || true
+  if alembic upgrade head; then
+    echo "Migrations completed successfully after repair"
+  else
+    echo "Migration failed; starting app with ensure_schema fallback..."
+    python -m app.startup.ensure_schema || exit 1
+  fi
 fi
 
 echo "Ensuring schema tables..."

@@ -12,6 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -281,13 +282,15 @@ export default function UploadPage({ params }: { params: { id: string } }) {
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold">Files</h3>
-              {hasUploadedFiles && !isProcessing && (
-                <button
+              {hasUploadedFiles && (
+                <Button
                   onClick={startProcessing}
-                  className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+                  loading={isProcessing}
+                  loadingText="Processing..."
+                  disabled={isProcessing}
                 >
                   Start Processing
-                </button>
+                </Button>
               )}
             </div>
 
@@ -348,19 +351,16 @@ export default function UploadPage({ params }: { params: { id: string } }) {
 
         <div className="flex justify-end space-x-4">
           {showSuccessModal ? (
-            <button
-              onClick={() => router.push(`/dashboard/knowledge/${params.id}`)}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-            >
+            <Button onClick={() => router.push(`/dashboard/knowledge/${params.id}`)}>
               Done
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              variant="outline"
               onClick={() => router.push(`/dashboard/knowledge/${params.id}`)}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
             >
               Cancel
-            </button>
+            </Button>
           )}
         </div>
       </div>

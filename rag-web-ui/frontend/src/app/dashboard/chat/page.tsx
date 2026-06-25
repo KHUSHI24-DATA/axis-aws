@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, MessageSquare, Trash2, Search } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Search, Loader2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { Button } from "@/components/ui/button";
+import { PageLoading } from "@/components/ui/loading-indicator";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -25,6 +27,8 @@ interface Message {
 export default function ChatPage() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -44,11 +48,14 @@ export default function ChatPage() {
           variant: "destructive",
         });
       }
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this chat?")) return;
+    setDeletingId(id);
     try {
       await api.delete(`/api/chat/${id}`);
       setChats((prev) => prev.filter((chat) => chat.id !== id));
@@ -65,6 +72,8 @@ export default function ChatPage() {
           variant: "destructive",
         });
       }
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -108,8 +117,10 @@ export default function ChatPage() {
           </div>
         </div>
 
+        {loading && <PageLoading message="Loading conversations..." />}
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredChats.map((chat) => (
+          {!loading && filteredChats.map((chat) => (
             <div
               key={chat.id}
               className="group relative bg-card rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
@@ -143,20 +154,28 @@ export default function ChatPage() {
                   )}
                 </div>
               </Link>
-              <button
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="absolute top-4 right-4 h-8 w-8 rounded-full hover:bg-destructive/10 group/delete"
+                disabled={deletingId === chat.id}
                 onClick={(e) => {
                   e.preventDefault();
                   handleDelete(chat.id);
                 }}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-destructive/10 group/delete"
               >
-                <Trash2 className="h-4 w-4 text-muted-foreground group-hover/delete:text-destructive transition-colors" />
-              </button>
+                {deletingId === chat.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                ) : (
+                  <Trash2 className="h-4 w-4 text-muted-foreground group-hover/delete:text-destructive transition-colors" />
+                )}
+              </Button>
             </div>
           ))}
         </div>
 
-        {chats.length === 0 && (
+        {!loading && chats.length === 0 && (
           <div className="text-center py-16 bg-card rounded-lg border">
             <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/50" />
             <h3 className="mt-4 text-lg font-medium text-foreground">
