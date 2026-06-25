@@ -95,7 +95,7 @@ services:
       - POSTGRES_USER=ragwebui
       - POSTGRES_PASSWORD=ragwebui
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - pgvector_data:/var/lib/postgresql/data
       - ./infra/sql/pgvector-init.sql:/docker-entrypoint-initdb.d/pgvector-init.sql:ro

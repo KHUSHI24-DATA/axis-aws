@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.models.chat import Message, Chat, chat_knowledge_bases
 from app.models.knowledge import KnowledgeBase, Document
 from app.services.vector_store import VectorStoreFactory
+from app.services.vector_store.pgvector import MergedVectorStoreRetriever
 from app.services.embedding.embedding_factory import EmbeddingsFactory
 from app.services.llm.llm_factory import LLMFactory
 
@@ -156,7 +157,28 @@ async def generate_response(
             db.commit()
             return
 
-        retriever = vector_stores[0].as_retriever()
+        top_k = settings.RETRIEVAL_TOP_K
+        if len(vector_stores) == 1:
+            retriever = vector_stores[0].as_retriever(
+                search_kwargs={"k": top_k}
+            )
+        else:
+            retriever = MergedVectorStoreRetriever(stores=vector_stores, k=top_k)
+
+        preview_docs = retriever.invoke(query)
+        if not preview_docs or not any(
+            (doc.page_content or "").strip() for doc in preview_docs
+        ):
+            error_msg = (
+                "I could not find relevant information in the uploaded documents "
+                "for your question. Please try rephrasing or upload the document "
+                "that contains this topic."
+            )
+            yield f'0:"{_escape_stream_text(error_msg)}"\n'
+            yield _finish_stream()
+            bot_message.content = error_msg
+            db.commit()
+            return
 
         llm = LLMFactory.create()
 
@@ -181,19 +203,21 @@ async def generate_response(
         )
 
         qa_system_prompt = (
-            "You are given a user question, and please write clean, concise and accurate answer to the question. "
-            "You will be given a set of related contexts to the question, which are numbered sequentially starting from 1. "
-            "Each context has an implicit reference number based on its position in the array (first context is 1, second is 2, etc.). "
-            "Please use these contexts and cite them using the format [citation:x] at the end of each sentence where applicable. "
-            "Your answer must be correct, accurate and written by an expert using an unbiased and professional tone. "
-            "Please limit to 1024 tokens. Do not give any information that is not related to the question, and do not repeat. "
-            "Say 'information is missing on' followed by the related topic, if the given context do not provide sufficient information. "
-            "If a sentence draws from multiple contexts, please list all applicable citations, like [citation:1][citation:2]. "
-            "Always respond in English regardless of the language used in the source documents or the user's question. "
-            "Other than code and specific names and citations, your answer must be written in English. "
-            "Be concise.\n\nContext: {context}\n\n"
-            "Remember: Cite contexts by their position number (1 for first context, 2 for second, etc.) and don't blindly "
-            "repeat the contexts verbatim."
+            "You are a document Q&A assistant. Answer the user's question using ONLY "
+            "the information provided in the Context below. The Context comes from "
+            "uploaded knowledge-base documents — treat it as your only source of truth.\n\n"
+            "Rules:\n"
+            "1. Use ONLY facts explicitly stated in the Context. Do NOT use outside "
+            "knowledge, training data, guesses, or assumptions.\n"
+            "2. Contexts are numbered from 1. Cite sources as [citation:1], [citation:2], etc.\n"
+            "3. If the Context does not contain enough information, respond exactly: "
+            "'I could not find this information in the uploaded documents.'\n"
+            "4. Do not repeat the Context verbatim. Write a clear, concise answer (max 1024 tokens).\n"
+            "5. If multiple contexts support a sentence, cite all of them, e.g. [citation:1][citation:2].\n"
+            "6. Always respond in English.\n\n"
+            "Context:\n{context}\n\n"
+            "Remember: Answer ONLY from the Context above. If it is not in the documents, "
+            "say you could not find it."
         )
         qa_prompt = ChatPromptTemplate.from_messages([
             ("system", qa_system_prompt),

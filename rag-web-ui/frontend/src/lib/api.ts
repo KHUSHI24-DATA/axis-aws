@@ -82,6 +82,19 @@ async function readErrorMessage(response: Response): Promise<string> {
       }
     }
 
+    if (text.includes('<title>502 Bad Gateway</title>') || text.includes('502 Bad Gateway')) {
+      return 'Backend is starting or unavailable (502). Wait 1–2 minutes and try again.';
+    }
+    if (text.includes('<title>503') || text.includes('503 Service Unavailable')) {
+      return 'Service temporarily unavailable (503). Please try again in a moment.';
+    }
+    if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
+      if (response.status >= 500) {
+        return `Server error (${response.status}). The backend may be unavailable or still starting.`;
+      }
+      return `Request failed (${response.status})`;
+    }
+
     return text.length > 500 ? `${text.slice(0, 500)}...` : text;
   } catch {
     return `Request failed (${response.status})`;

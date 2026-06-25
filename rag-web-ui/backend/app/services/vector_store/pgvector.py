@@ -100,3 +100,43 @@ class PGVectorStore(BaseVectorStore):
         if hasattr(self._store, "delete_collection"):
             self._store.delete_collection()
 
+
+class MergedVectorStoreRetriever(BaseRetriever):
+    """Merge similarity search results from multiple vector stores."""
+
+    stores: List["PGVectorStore"] = Field(default_factory=list)
+    k: int = Field(default=4)
+
+    def _get_relevant_documents(
+        self,
+        query: str,
+        *,
+        run_manager: CallbackManagerForRetrieverRun,
+    ) -> List[Document]:
+        if not self.stores:
+            return []
+
+        per_store = max(1, (self.k + len(self.stores) - 1) // len(self.stores))
+        merged: List[Document] = []
+        seen: set[str] = set()
+
+        for store in self.stores:
+            for doc in store.similarity_search(query, k=per_store):
+                key = (doc.page_content or "").strip()[:300]
+                if key and key not in seen:
+                    seen.add(key)
+                    merged.append(doc)
+
+        return merged[: self.k]
+
+    async def _aget_relevant_documents(
+        self,
+        query: str,
+        *,
+        run_manager: AsyncCallbackManagerForRetrieverRun,
+    ) -> List[Document]:
+        return await asyncio.to_thread(
+            self._get_relevant_documents,
+            query,
+            run_manager=run_manager,
+        )

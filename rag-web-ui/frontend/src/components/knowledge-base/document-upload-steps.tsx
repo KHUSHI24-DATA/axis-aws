@@ -102,6 +102,9 @@ interface TaskStatusResponse {
   [key: string]: TaskStatus;
 }
 
+const FAQ_GENERATION_MESSAGE =
+  "Generating FAQ from doc, please wait. Might take up to 2 min";
+
 export function DocumentUploadSteps({
   knowledgeBaseId,
   onComplete,
@@ -153,11 +156,16 @@ export function DocumentUploadSteps({
   useEffect(() => {
     if (currentStep !== 2 || uploadedFiles.length === 0) return;
 
+    if (uploadedFiles.length === 1) {
+      setSelectedDocumentId(uploadedFiles[0].uploadId ?? null);
+      return;
+    }
+
     const selectedStillValid = uploadedFiles.some(
       (f) => f.uploadId === selectedDocumentId
     );
     if (!selectedStillValid) {
-      setSelectedDocumentId(uploadedFiles[0].uploadId ?? null);
+      setSelectedDocumentId(null);
     }
   }, [currentStep, uploadedFiles, selectedDocumentId]);
 
@@ -265,6 +273,12 @@ export function DocumentUploadSteps({
       );
 
       // Advance to preview step after upload
+      const newUploadIds = data
+        .filter((d) => d.upload_id != null && d.status !== "exists")
+        .map((d) => d.upload_id as number);
+      setSelectedDocumentId(
+        newUploadIds.length === 1 ? newUploadIds[0] : null
+      );
       setCurrentStep(2);
       toast({
         title: "Upload successful",
@@ -484,16 +498,12 @@ export function DocumentUploadSteps({
   const getTaskForUpload = (uploadId?: number) =>
     Object.values(taskStatuses).find((t) => t.upload_id === uploadId);
 
-  const isGeneratingFaq = Object.values(taskStatuses).some(
-    (t) => t.status === "generating_faq"
-  );
-
   const getStatusLabel = (status?: TaskStatus["status"]) => {
     switch (status) {
       case "generating_faq":
-        return "Generating FAQs (may take up to 2 min)...";
+        return FAQ_GENERATION_MESSAGE;
       case "processing":
-        return "Processing...";
+        return FAQ_GENERATION_MESSAGE;
       case "pending":
         return "Queued";
       case "completed":
@@ -750,6 +760,7 @@ export function DocumentUploadSteps({
                   onClick={() => setCurrentStep(3)}
                   variant="secondary"
                   className="flex-1"
+                  disabled={!selectedDocumentId}
                 >
                   Continue
                 </Button>
@@ -879,11 +890,7 @@ export function DocumentUploadSteps({
                   files.filter((f) => f.status === "uploaded").length === 0
                 }
                 loading={isLoading}
-                loadingText={
-                  isGeneratingFaq
-                    ? "Generating FAQ from doc, please wait. May take up to 2 min."
-                    : "Processing..."
-                }
+                loadingText={FAQ_GENERATION_MESSAGE}
                 className="w-full"
               >
                 <Settings className="mr-2 h-4 w-4" />

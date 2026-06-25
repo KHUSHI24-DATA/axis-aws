@@ -114,6 +114,7 @@ class Settings(BaseSettings):
 
     # Vector Store settings
     VECTOR_STORE_TYPE: str = "pgvector"
+    RETRIEVAL_TOP_K: int = 4
 
     # Chroma DB settings
     CHROMA_DB_HOST: str = "chromadb"
