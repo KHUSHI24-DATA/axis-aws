@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { FormLoadingOverlay } from "@/components/ui/loading-indicator";
 import { api, ApiError } from "@/lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState({
     email: "",
     password: "",
@@ -87,6 +90,7 @@ export default function RegisterPage() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       await api.post("/api/auth/register", {
         username,
@@ -101,6 +105,8 @@ export default function RegisterPage() {
       } else {
         setError("Registration failed");
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -117,7 +123,10 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form className="relative space-y-6" onSubmit={handleSubmit}>
+            {isSubmitting && (
+              <FormLoadingOverlay message="Creating your account..." />
+            )}
             <div className="space-y-4">
               <div>
                 <label
@@ -131,6 +140,7 @@ export default function RegisterPage() {
                   name="username"
                   type="text"
                   required
+                  disabled={isSubmitting}
                   className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter your username"
                 />
@@ -148,6 +158,7 @@ export default function RegisterPage() {
                   name="email"
                   type="email"
                   required
+                  disabled={isSubmitting}
                   className={`mt-1 block w-full px-3 py-2 rounded-md border ${
                     validationErrors.email
                       ? "border-red-300"
@@ -175,6 +186,7 @@ export default function RegisterPage() {
                   name="password"
                   type="password"
                   required
+                  disabled={isSubmitting}
                   className={`mt-1 block w-full px-3 py-2 rounded-md border ${
                     validationErrors.password
                       ? "border-red-300"
@@ -202,6 +214,7 @@ export default function RegisterPage() {
                   name="confirmPassword"
                   type="password"
                   required
+                  disabled={isSubmitting}
                   className={`mt-1 block w-full px-3 py-2 rounded-md border ${
                     validationErrors.confirmPassword
                       ? "border-red-300"
@@ -223,12 +236,14 @@ export default function RegisterPage() {
               </div>
             )}
 
-            <button
+            <Button
               type="submit"
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              className="w-full"
+              loading={isSubmitting}
+              loadingText="Creating account..."
             >
               Create Account
-            </button>
+            </Button>
           </form>
 
           <div className="text-center">

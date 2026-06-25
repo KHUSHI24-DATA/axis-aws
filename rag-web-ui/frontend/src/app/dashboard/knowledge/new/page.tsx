@@ -3,16 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { Button } from "@/components/ui/button";
+import { FormLoadingOverlay } from "@/components/ui/loading-indicator";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
-
-interface KnowledgeBase {
-  id: number;
-  name: string;
-  description: string;
-  documents: any[];
-  created_at: string;
-}
 
 export default function NewKnowledgeBasePage() {
   const router = useRouter();
@@ -65,7 +59,11 @@ export default function NewKnowledgeBasePage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="relative space-y-6">
+          {isSubmitting && (
+            <FormLoadingOverlay message="Creating knowledge base..." />
+          )}
+
           <div className="space-y-2">
             <label
               htmlFor="name"
@@ -78,6 +76,7 @@ export default function NewKnowledgeBasePage() {
               name="name"
               type="text"
               required
+              disabled={isSubmitting}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="Enter knowledge base name"
             />
@@ -93,6 +92,7 @@ export default function NewKnowledgeBasePage() {
             <textarea
               id="description"
               name="description"
+              disabled={isSubmitting}
               className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="Enter knowledge base description"
             />
@@ -101,20 +101,17 @@ export default function NewKnowledgeBasePage() {
           {error && <div className="text-sm text-red-500">{error}</div>}
 
           <div className="flex justify-end space-x-4">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => router.back()}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
+              disabled={isSubmitting}
             >
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-            >
-              {isSubmitting ? "Creating..." : "Create"}
-            </button>
+            </Button>
+            <Button type="submit" loading={isSubmitting} loadingText="Creating...">
+              Create
+            </Button>
           </div>
         </form>
       </div>

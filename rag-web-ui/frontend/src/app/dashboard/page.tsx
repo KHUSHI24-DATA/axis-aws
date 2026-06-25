@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { PageLoading } from "@/components/ui/loading-indicator";
 import {
   Book,
   MessageSquare,
@@ -34,6 +35,7 @@ interface Stats {
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ knowledgeBases: 0, chats: 0 });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -52,6 +54,8 @@ export default function DashboardPage() {
         if (error instanceof ApiError && error.status === 401) {
           return;
         }
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -85,6 +89,9 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Section */}
+        {loading ? (
+          <PageLoading message="Loading dashboard..." />
+        ) : (
         <div className="grid gap-6 md:grid-cols-2 mb-12">
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm hover:shadow-md transition-all">
             <div className="flex items-center gap-6">
@@ -132,6 +139,7 @@ export default function DashboardPage() {
             </a>
           </div>
         </div>
+        )}
 
         {/* Quick Actions */}
         <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-6">

@@ -17,7 +17,11 @@ class KnowledgeBase(Base, TimestampMixin):
     # Relationships
     documents = relationship("Document", back_populates="knowledge_base", cascade="all, delete-orphan")
     user = relationship("User", back_populates="knowledge_bases")
-    processing_tasks = relationship("ProcessingTask", back_populates="knowledge_base")
+    processing_tasks = relationship(
+        "ProcessingTask",
+        back_populates="knowledge_base",
+        cascade="all, delete-orphan",
+    )
     chunks = relationship("DocumentChunk", back_populates="knowledge_base", cascade="all, delete-orphan")
     document_uploads = relationship("DocumentUpload", back_populates="knowledge_base", cascade="all, delete-orphan")
 
@@ -35,9 +39,24 @@ class Document(Base, TimestampMixin):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    knowledge_base = relationship("KnowledgeBase", back_populates="documents") 
-    processing_tasks = relationship("ProcessingTask", back_populates="document")
+    knowledge_base = relationship("KnowledgeBase", back_populates="documents")
+    processing_tasks = relationship(
+        "ProcessingTask",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    content = relationship(
+        "DocumentContent",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    faqs = relationship(
+        "DocumentFAQ",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         # Ensure file_name is unique within each knowledge base
@@ -94,4 +113,60 @@ class DocumentChunk(Base, TimestampMixin):
 
     __table_args__ = (
         sa.Index('idx_kb_file_name', 'kb_id', 'file_name'),
-    ) 
+    )
+
+
+class DocumentContent(Base, TimestampMixin):
+    """Stores extracted content from documents"""
+    __tablename__ = "document_contents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    raw_text = Column(Text, nullable=False)  # Full extracted text
+    content_length = Column(Integer)  # Character count
+    extracted_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    document = relationship("Document", back_populates="content")
+
+
+class DocumentFAQ(Base, TimestampMixin):
+    """Stores FAQ entries generated from documents"""
+    __tablename__ = "document_faqs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    is_verified = Column(sa.Boolean, default=False)  # Whether FAQ has been reviewed
+    feedback_status = Column(String(20), default="pending")  # pending, correct, incorrect
+    corrected_answer = Column(Text, nullable=True)  # If marked incorrect
+    is_auto_generated = Column(sa.Boolean, default=True)  # Distinguish auto-generated from manually added
+    confidence_score = Column(sa.Float, nullable=True)  # Confidence of LLM in the FAQ
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    # Relationships
+    document = relationship("Document", back_populates="faqs")
+    creator = relationship("User", backref="created_faqs")
+    feedbacks = relationship("FAQFeedback", back_populates="faq", cascade="all, delete-orphan")
+
+
+class FAQFeedback(Base, TimestampMixin):
+    """Tracks feedback history for FAQs"""
+    __tablename__ = "faq_feedbacks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    faq_id = Column(Integer, ForeignKey("document_faqs.id", ondelete="CASCADE"), nullable=False)
+    feedback_type = Column(String(20), nullable=False)  # correct, incorrect
+    corrected_answer = Column(Text, nullable=True)
+    reviewer_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Relationships
+    faq = relationship("DocumentFAQ", back_populates="feedbacks")
+    reviewer = relationship("User", backref="faq_feedbacks")

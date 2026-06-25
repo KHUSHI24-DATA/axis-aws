@@ -20,6 +20,28 @@ set_verbose(True)
 set_debug(True)
 
 
+def _escape_stream_text(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+    )
+
+
+def _serialize_metadata(metadata: dict) -> dict:
+    serializable = {}
+    for key, value in (metadata or {}).items():
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            serializable[key] = value
+        else:
+            serializable[key] = str(value)
+    return serializable
+
+
+def _finish_stream() -> str:
+    return 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
+
+
 def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip().lower()
 
@@ -99,12 +121,9 @@ async def generate_response(
             user_id=user_id,
         )
         if preferred_answer:
-            escaped_answer = preferred_answer.replace('"', '\\"').replace("\n", "\\n")
+            escaped_answer = _escape_stream_text(preferred_answer)
             yield f'0:"{escaped_answer}"\n'
-            yield (
-                'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}'
-                "\n"
-            )
+            yield _finish_stream()
             bot_message.content = preferred_answer
             db.commit()
             return
@@ -131,8 +150,8 @@ async def generate_response(
 
         if not vector_stores:
             error_msg = "I don't have any knowledge base to help answer your question."
-            yield f'0:"{error_msg}"\n'
-            yield 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
+            yield f'0:"{_escape_stream_text(error_msg)}"\n'
+            yield _finish_stream()
             bot_message.content = error_msg
             db.commit()
             return
@@ -146,7 +165,8 @@ async def generate_response(
             "which might reference context in the chat history, "
             "formulate a standalone question which can be understood "
             "without the chat history. Do NOT answer the question, just "
-            "reformulate it if needed and otherwise return it as is."
+            "reformulate it if needed and otherwise return it as is. "
+            "Always write the reformulated question in English."
         )
         contextualize_q_prompt = ChatPromptTemplate.from_messages([
             ("system", contextualize_q_system_prompt),
@@ -169,7 +189,8 @@ async def generate_response(
             "Please limit to 1024 tokens. Do not give any information that is not related to the question, and do not repeat. "
             "Say 'information is missing on' followed by the related topic, if the given context do not provide sufficient information. "
             "If a sentence draws from multiple contexts, please list all applicable citations, like [citation:1][citation:2]. "
-            "Other than code and specific names and citations, your answer must be written in the same language as the question. "
+            "Always respond in English regardless of the language used in the source documents or the user's question. "
+            "Other than code and specific names and citations, your answer must be written in English. "
             "Be concise.\n\nContext: {context}\n\n"
             "Remember: Cite contexts by their position number (1 for first context, 2 for second, etc.) and don't blindly "
             "repeat the contexts verbatim."
@@ -195,13 +216,16 @@ async def generate_response(
         )
 
         chat_history = []
-        for message in messages["messages"]:
+        for message in messages.get("messages", []):
+            if message["role"] == "user" and message["content"] == query:
+                continue
             if message["role"] == "user":
                 chat_history.append(HumanMessage(content=message["content"]))
             elif message["role"] == "assistant":
-                if "__LLM_RESPONSE__" in message["content"]:
-                    message["content"] = message["content"].split("__LLM_RESPONSE__")[-1]
-                chat_history.append(AIMessage(content=message["content"]))
+                content = message["content"]
+                if "__LLM_RESPONSE__" in content:
+                    content = content.split("__LLM_RESPONSE__")[-1]
+                chat_history.append(AIMessage(content=content))
 
         full_response = ""
         async for chunk in rag_chain.astream({
@@ -212,42 +236,34 @@ async def generate_response(
                 serializable_context = []
                 for context in chunk["context"]:
                     serializable_doc = {
-                        "page_content": context.page_content.replace('"', '\\"'),
-                        "metadata": context.metadata,
+                        "page_content": context.page_content,
+                        "metadata": _serialize_metadata(context.metadata),
                     }
                     serializable_context.append(serializable_doc)
 
-                escaped_context = json.dumps({
-                    "context": serializable_context
-                })
-
+                escaped_context = json.dumps({"context": serializable_context})
                 base64_context = base64.b64encode(escaped_context.encode()).decode()
-
                 separator = "__LLM_RESPONSE__"
+                stream_payload = _escape_stream_text(base64_context + separator)
 
-                yield f'0:"{base64_context}{separator}"\n'
+                yield f'0:"{stream_payload}"\n'
                 full_response += base64_context + separator
 
             if "answer" in chunk:
                 answer_chunk = chunk["answer"]
                 full_response += answer_chunk
-                escaped_chunk = (
-                    answer_chunk
-                    .replace('"', '\\"')
-                    .replace("\n", "\\n")
-                )
-                yield f'0:"{escaped_chunk}"\n'
+                yield f'0:"{_escape_stream_text(answer_chunk)}"\n'
 
+        yield _finish_stream()
         bot_message.content = full_response
         db.commit()
 
     except Exception as e:
         error_message = f"Error generating response: {str(e)}"
         print(error_message)
-        yield '3:{text}\n'.format(text=error_message)
+        yield f'3:"{_escape_stream_text(error_message)}"\n'
+        yield _finish_stream()
 
         if "bot_message" in locals():
             bot_message.content = error_message
             db.commit()
-    finally:
-        db.close()

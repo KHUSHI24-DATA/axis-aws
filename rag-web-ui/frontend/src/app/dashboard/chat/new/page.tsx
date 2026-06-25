@@ -4,6 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/dashboard-layout";
+import { Button } from "@/components/ui/button";
+import {
+  FormLoadingOverlay,
+  PageLoading,
+} from "@/components/ui/loading-indicator";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { Plus } from "lucide-react";
@@ -32,7 +37,6 @@ export default function NewChatPage() {
     try {
       const data = await api.get("/api/knowledge-base");
       setKnowledgeBases(data);
-      setIsLoading(false);
     } catch (error) {
       console.error("Failed to fetch knowledge bases:", error);
       if (error instanceof ApiError) {
@@ -42,6 +46,8 @@ export default function NewChatPage() {
           variant: "destructive",
         });
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -79,11 +85,15 @@ export default function NewChatPage() {
     }
   };
 
-  const selectKnowledgeBase = (id: number) => {
-    setSelectedKB(id);
-  };
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <PageLoading message="Loading knowledge bases..." />
+      </DashboardLayout>
+    );
+  }
 
-  if (!isLoading && knowledgeBases.length === 0) {
+  if (knowledgeBases.length === 0) {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto text-center py-16">
@@ -94,13 +104,12 @@ export default function NewChatPage() {
             You need to create at least one knowledge base before starting a
             chat.
           </p>
-          <Link
-            href="/dashboard/knowledge"
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Create Knowledge Base
-          </Link>
+          <Button asChild>
+            <Link href="/dashboard/knowledge">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Knowledge Base
+            </Link>
+          </Button>
         </div>
       </DashboardLayout>
     );
@@ -116,7 +125,9 @@ export default function NewChatPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="relative space-y-6">
+          {isSubmitting && <FormLoadingOverlay message="Starting chat..." />}
+
           <div className="space-y-2">
             <label
               htmlFor="title"
@@ -130,6 +141,7 @@ export default function NewChatPage() {
               onChange={(e) => setTitle(e.target.value)}
               type="text"
               required
+              disabled={isSubmitting}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="Enter chat title"
             />
@@ -143,60 +155,57 @@ export default function NewChatPage() {
               Multiple selection coming soon...
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              {isLoading ? (
-                <div className="col-span-2 flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
-              ) : (
-                knowledgeBases.map((kb) => (
-                  <label
-                    key={kb.id}
-                    className={`group flex items-center space-x-3 rounded-lg border p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
-                      selectedKB === kb.id
-                        ? "border-primary bg-primary/5 shadow-sm"
-                        : "hover:border-primary/50"
-                    }`}
-                  >
-                    <div className="relative flex items-center justify-center">
-                      <input
-                        type="radio"
-                        name="knowledge-base"
-                        className="peer h-4 w-4 shrink-0 rounded-full border border-primary text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        checked={selectedKB === kb.id}
-                        onChange={() => selectKnowledgeBase(kb.id)}
-                      />
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <p className="font-medium group-hover:text-primary transition-colors">
-                        {kb.name}
-                      </p>
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {kb.description || "No description provided"}
-                      </p>
-                    </div>
-                  </label>
-                ))
-              )}
+              {knowledgeBases.map((kb) => (
+                <label
+                  key={kb.id}
+                  className={`group flex items-center space-x-3 rounded-lg border p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
+                    selectedKB === kb.id
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "hover:border-primary/50"
+                  }`}
+                >
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="knowledge-base"
+                      disabled={isSubmitting}
+                      className="peer h-4 w-4 shrink-0 rounded-full border border-primary text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      checked={selectedKB === kb.id}
+                      onChange={() => setSelectedKB(kb.id)}
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <p className="font-medium group-hover:text-primary transition-colors">
+                      {kb.name}
+                    </p>
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {kb.description || "No description provided"}
+                    </p>
+                  </div>
+                </label>
+              ))}
             </div>
           </div>
 
           {error && <div className="text-sm text-red-500">{error}</div>}
 
           <div className="flex justify-end space-x-4">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => router.back()}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
+              disabled={isSubmitting}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={isSubmitting || !selectedKB}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+              disabled={!selectedKB}
+              loading={isSubmitting}
+              loadingText="Starting chat..."
             >
-              {isSubmitting ? "Creating..." : "Start Chat"}
-            </button>
+              Start Chat
+            </Button>
           </div>
         </form>
       </div>

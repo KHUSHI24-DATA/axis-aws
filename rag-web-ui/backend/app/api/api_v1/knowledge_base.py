@@ -304,7 +304,7 @@ async def upload_kb_documents(
                     "document_id": existing_document.id,
                     "file_name": existing_document.file_name,
                     "status": "exists",
-                    "message": "文件已存在且已处理完成",
+                    "message": "This file already exists and has been processed.",
                     "skip_processing": True,
                 }
             )
@@ -408,6 +408,7 @@ async def preview_kb_documents(
                     file_path,
                     chunk_size=preview_request.chunk_size,
                     chunk_overlap=preview_request.chunk_overlap,
+                    use_semantic=preview_request.use_semantic,
                 )
             results[doc_id] = preview
             continue
@@ -416,6 +417,7 @@ async def preview_kb_documents(
             file_path,
             chunk_size=preview_request.chunk_size,
             chunk_overlap=preview_request.chunk_overlap,
+            use_semantic=preview_request.use_semantic,
         )
         results[doc_id] = preview
 
@@ -493,6 +495,10 @@ async def process_kb_documents(
                     logger.error("Upload missing before processing: %s", upload.temp_path)
                     continue
 
+                chunk_size = result.get("chunk_size")
+                chunk_overlap = result.get("chunk_overlap")
+                use_semantic = result.get("use_semantic")
+
                 background_tasks.add_task(
                     process_document_background,
                     upload.temp_path,
@@ -500,9 +506,10 @@ async def process_kb_documents(
                     kb_id,
                     task.id,
                     None,
-                    None,
-                    None,
+                    chunk_size,
+                    chunk_overlap,
                     file_bytes,
+                    use_semantic,
                 )
 
     logger.info("Queued %s document processing task(s) for kb %s", len(task_info), kb_id)

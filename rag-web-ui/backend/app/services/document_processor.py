@@ -15,20 +15,18 @@ from langchain_community.document_loaders import (
     UnstructuredMarkdownLoader,
     TextLoader,
 )
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LangchainDocument
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.models.knowledge import ProcessingTask, Document, DocumentChunk
+from app.models.knowledge import ProcessingTask, Document, DocumentChunk, DocumentContent, DocumentFAQ
 from app.services.chunk_record import ChunkRecord
-import uuid
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import UnstructuredFileLoader
+from app.services.faq_generator import get_faq_generator
+from app.services.text_splitter import get_text_splitter
 from app.services.vector_store import VectorStoreFactory
 from app.services.embedding.embedding_factory import EmbeddingsFactory
 from app.services.upload_storage import upload_storage
+from app.utils.text_sanitizer import sanitize_documents, sanitize_text
 
 
 class UploadResult(BaseModel):
@@ -47,6 +45,53 @@ class TextChunk(BaseModel):
 class PreviewResult(BaseModel):
     chunks: List[TextChunk]
     total_chunks: int
+
+
+def _load_sanitized_documents(loader) -> List[LangchainDocument]:
+    """Load documents and strip bytes that PostgreSQL cannot store."""
+    documents = sanitize_documents(loader.load())
+    if not documents:
+        raise ValueError("No extractable text found in document after sanitization")
+    return documents
+
+
+def _split_sanitized_chunks(
+    documents: List[LangchainDocument],
+    chunk_size: int,
+    chunk_overlap: int,
+    use_semantic: bool | None,
+) -> List[LangchainDocument]:
+    """Split documents into chunks safe for PostgreSQL and vector storage."""
+    text_splitter = get_text_splitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        use_semantic=use_semantic,
+    )
+    chunks = sanitize_documents(text_splitter.split_documents(documents))
+    if not chunks:
+        raise ValueError("No text chunks produced from document")
+    return chunks
+
+
+def _add_documents_to_vector_store(vector_store, chunks: List[LangchainDocument]) -> None:
+    """Insert chunks into the vector store with sanitization fallback."""
+    logger = logging.getLogger(__name__)
+    try:
+        vector_store.add_documents(chunks)
+    except Exception as exc:
+        error_text = str(exc)
+        if "NUL" in error_text or "0x00" in error_text:
+            logger.warning(
+                "Vector store rejected document text due to invalid characters; retrying after sanitization"
+            )
+            safe_chunks = sanitize_documents(chunks)
+            if not safe_chunks:
+                raise ValueError(
+                    "Document chunks are empty after removing invalid characters"
+                ) from exc
+            vector_store.add_documents(safe_chunks)
+            return
+        raise
 
 
 async def process_document(
@@ -132,7 +177,7 @@ async def process_document(
         if new_chunks:
             logger.info(f"Adding {len(new_chunks)} new/updated chunks")
             chunk_manager.add_chunks(new_chunks)
-            vector_store.add_documents(documents_to_update)
+            _add_documents_to_vector_store(vector_store, documents_to_update)
 
         # Delete removed chunks
         chunks_to_delete = chunk_manager.get_deleted_chunks(current_hashes, file_name)
@@ -191,7 +236,10 @@ async def upload_document(file: UploadFile, kb_id: int) -> UploadResult:
 
 
 async def preview_document(
-    file_path: str, chunk_size: int = None, chunk_overlap: int = None
+    file_path: str,
+    chunk_size: int = None,
+    chunk_overlap: int = None,
+    use_semantic: bool | None = None,
 ) -> PreviewResult:
     chunk_size = chunk_size or settings.CHUNK_SIZE
     chunk_overlap = chunk_overlap or settings.CHUNK_OVERLAP
@@ -201,7 +249,7 @@ async def preview_document(
 
     with upload_storage.local_path_for_reading(file_path) as temp_path:
         return await _preview_from_local_path(
-            temp_path, ext, chunk_size, chunk_overlap
+            temp_path, ext, chunk_size, chunk_overlap, use_semantic
         )
 
 
@@ -210,6 +258,7 @@ async def _preview_from_local_path(
     ext: str,
     chunk_size: int,
     chunk_overlap: int,
+    use_semantic: bool | None = None,
 ) -> PreviewResult:
     try:
         if ext == ".pdf":
@@ -250,11 +299,10 @@ async def _preview_from_local_path(
             loader = TextLoader(temp_path)
 
         # Load and split the document
-        documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        documents = _load_sanitized_documents(loader)
+        chunks = _split_sanitized_chunks(
+            documents, chunk_size, chunk_overlap, use_semantic
         )
-        chunks = text_splitter.split_documents(documents)
 
         # Convert to preview format
         preview_chunks = [
@@ -278,6 +326,7 @@ async def process_document_background(
     chunk_size: int = None,
     chunk_overlap: int = None,
     file_bytes: bytes | None = None,
+    use_semantic: bool | None = None,
 ) -> None:
     chunk_size = chunk_size or settings.CHUNK_SIZE
     chunk_overlap = chunk_overlap or settings.CHUNK_OVERLAP
@@ -356,14 +405,13 @@ async def process_document_background(
                 loader = TextLoader(local_temp_path)
 
             logger.info(f"Task {task_id}: Loading document content")
-            documents = loader.load()
+            documents = _load_sanitized_documents(loader)
             logger.info(f"Task {task_id}: Document loaded successfully")
 
             logger.info(f"Task {task_id}: Splitting document into chunks")
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            chunks = _split_sanitized_chunks(
+                documents, chunk_size, chunk_overlap, use_semantic
             )
-            chunks = text_splitter.split_documents(documents)
             logger.info(f"Task {task_id}: Document split into {len(chunks)} chunks")
 
             # 3. 创建向量存储
@@ -426,16 +474,75 @@ async def process_document_background(
 
             # 6. 添加到向量存储
             logger.info(f"Task {task_id}: Adding chunks to vector store")
-            vector_store.add_documents(chunks)
+            _add_documents_to_vector_store(vector_store, chunks)
             # 移除 persist() 调用，因为新版本不需要
             logger.info(f"Task {task_id}: Chunks added to vector store")
 
-            # 7. 更新任务状态
+            # 7. Extract content and generate FAQs
+            logger.info(f"Task {task_id}: Extracting document content")
+            try:
+                # Combine all chunk content
+                full_content = sanitize_text(
+                    "\n\n".join(chunk.page_content for chunk in chunks)
+                )
+                
+                # Store extracted content
+                doc_content = DocumentContent(
+                    document_id=document.id,
+                    raw_text=full_content,
+                    content_length=len(full_content),
+                )
+                db.add(doc_content)
+                db.commit()
+                logger.info(f"Task {task_id}: Document content stored ({len(full_content)} chars)")
+                
+                # Generate FAQs using LLM
+                if settings.FAQ_GENERATION_ENABLED:
+                    logger.info(f"Task {task_id}: Starting FAQ generation")
+                    task.status = "generating_faq"
+                    db.commit()
+
+                    faq_generator = get_faq_generator()
+                    num_faqs = await faq_generator.determine_faq_count(
+                        content=full_content,
+                        max_faqs=settings.FAQ_MAX_FAQS,
+                    )
+                    
+                    try:
+                        faqs = await faq_generator.generate_faqs(
+                            content=full_content,
+                            num_faqs=num_faqs,
+                            language="English"
+                        )
+                        
+                        # Store FAQs in database
+                        for faq_data in faqs:
+                            faq = DocumentFAQ(
+                                document_id=document.id,
+                                question=sanitize_text(faq_data.get("question", "")),
+                                answer=sanitize_text(faq_data.get("answer", "")),
+                                confidence_score=faq_data.get("confidence_score", 0.85),
+                                is_auto_generated=True,
+                                feedback_status="pending",
+                            )
+                            db.add(faq)
+                        
+                        db.commit()
+                        logger.info(f"Task {task_id}: Successfully generated and stored {len(faqs)} FAQs")
+                    except Exception as faq_error:
+                        logger.warning(f"Task {task_id}: FAQ generation failed (non-blocking): {str(faq_error)}")
+                        # Don't fail the entire document processing if FAQ generation fails
+                        
+            except Exception as content_error:
+                logger.warning(f"Task {task_id}: Content extraction/FAQ generation failed (non-blocking): {str(content_error)}")
+                # Don't fail the entire document processing
+
+            # 8. 更新任务状态
             logger.info(f"Task {task_id}: Updating task status to completed")
             task.status = "completed"
             task.document_id = document.id  # 更新为新创建的文档ID
 
-            # 8. 更新上传记录状态
+            # 9. 更新上传记录状态
             upload = task.document_upload  # 直接通过关系获取
             if upload:
                 logger.info(
@@ -453,7 +560,16 @@ async def process_document_background(
         logger.error(f"Task {task_id}: Error processing document: {str(e)}")
         logger.error(f"Task {task_id}: Stack trace: {traceback.format_exc()}")
         task.status = "failed"
-        task.error_message = str(e)
+        error_text = str(e)
+        if "NUL" in error_text or "0x00" in error_text:
+            task.error_message = (
+                "Document text contained invalid characters and could not be stored. "
+                "Please try re-uploading the file or use a different export format."
+            )
+        elif "No extractable text" in error_text or "No text chunks" in error_text:
+            task.error_message = error_text
+        else:
+            task.error_message = error_text
         db.commit()
 
         upload_storage.delete(temp_path)

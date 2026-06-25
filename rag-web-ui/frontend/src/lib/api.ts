@@ -10,6 +10,84 @@ export class ApiError extends Error {
   }
 }
 
+function parseApiErrorBody(errorData: unknown, status: number): string {
+  if (!errorData || typeof errorData !== 'object') {
+    return `Request failed (${status})`;
+  }
+
+  const data = errorData as Record<string, unknown>;
+
+  if (typeof data.detail === 'string' && data.detail.trim()) {
+    return data.detail;
+  }
+
+  if (Array.isArray(data.detail)) {
+    const messages = data.detail
+      .map((item) => {
+        if (!item || typeof item !== 'object') {
+          return String(item);
+        }
+        const entry = item as Record<string, unknown>;
+        if (typeof entry.msg === 'string') {
+          return entry.msg;
+        }
+        if (typeof entry.message === 'string') {
+          return entry.message;
+        }
+        return JSON.stringify(entry);
+      })
+      .filter(Boolean);
+    if (messages.length > 0) {
+      return messages.join('; ');
+    }
+  }
+
+  if (typeof data.message === 'string' && data.message.trim()) {
+    return data.message;
+  }
+
+  if (typeof data.error === 'string' && data.error.trim()) {
+    return data.error;
+  }
+
+  return `Request failed (${status})`;
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      const errorData = await response.json();
+      return parseApiErrorBody(errorData, response.status);
+    } catch {
+      return `Request failed (${response.status})`;
+    }
+  }
+
+  try {
+    const text = (await response.text()).trim();
+    if (!text) {
+      if (response.status >= 500) {
+        return `Server error (${response.status}). The backend may be unavailable or still starting.`;
+      }
+      return `Request failed (${response.status})`;
+    }
+
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        return parseApiErrorBody(JSON.parse(text), response.status);
+      } catch {
+        // Fall through to plain-text handling.
+      }
+    }
+
+    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+  } catch {
+    return `Request failed (${response.status})`;
+  }
+}
+
 export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
   const { data, headers: customHeaders = {}, ...restOptions } = options;
 
@@ -59,23 +137,30 @@ export async function fetchApi(fullUrl: string, options: FetchOptions = {}) {
     }
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new ApiError(
-        response.status,
-        errorData.message || errorData.detail || 'An error occurred'
-      );
+      const message = await readErrorMessage(response);
+      throw new ApiError(response.status, message);
     }
 
-    return await response.json();
+    if (response.status === 204) {
+      return null;
+    }
+
+    const responseType = response.headers.get('content-type') || '';
+    if (responseType.includes('application/json')) {
+      return await response.json();
+    }
+
+    return await response.text();
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;
     }
-    throw new ApiError(500, 'Network error or server is unreachable');
+    throw new ApiError(
+      500,
+      'Network error or server is unreachable. Check that the backend is running.'
+    );
   }
 }
-
-
 
 // Helper methods for common HTTP methods
 export const api = {
