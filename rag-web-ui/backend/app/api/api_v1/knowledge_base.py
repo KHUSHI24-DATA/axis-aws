@@ -459,6 +459,11 @@ async def process_kb_documents(
 
     uploads = db.query(DocumentUpload).filter(DocumentUpload.id.in_(upload_ids)).all()
     uploads_dict = {upload.id: upload for upload in uploads}
+    upload_options = {
+        result["upload_id"]: result
+        for result in upload_results
+        if result.get("upload_id") is not None
+    }
 
     all_tasks = []
     for upload_id in upload_ids:
@@ -485,6 +490,23 @@ async def process_kb_documents(
             task_info.append({"upload_id": upload_id, "task_id": task.id})
 
             if upload:
+                if upload.status == "completed":
+                    existing_task = (
+                        db.query(ProcessingTask)
+                        .filter(
+                            ProcessingTask.document_upload_id == upload.id,
+                            ProcessingTask.status == "completed",
+                            ProcessingTask.document_id.isnot(None),
+                        )
+                        .order_by(ProcessingTask.updated_at.desc())
+                        .first()
+                    )
+                    if existing_task:
+                        task.status = "completed"
+                        task.document_id = existing_task.document_id
+                        db.commit()
+                        continue
+
                 file_bytes = _upload_file_bytes(upload)
                 if not file_bytes:
                     task.status = "failed"
@@ -495,9 +517,10 @@ async def process_kb_documents(
                     logger.error("Upload missing before processing: %s", upload.temp_path)
                     continue
 
-                chunk_size = result.get("chunk_size")
-                chunk_overlap = result.get("chunk_overlap")
-                use_semantic = result.get("use_semantic")
+                options = upload_options.get(upload_id, {})
+                chunk_size = options.get("chunk_size")
+                chunk_overlap = options.get("chunk_overlap")
+                use_semantic = options.get("use_semantic")
 
                 background_tasks.add_task(
                     process_document_background,

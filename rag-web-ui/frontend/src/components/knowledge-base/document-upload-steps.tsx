@@ -32,6 +32,7 @@ import { DocumentContentFaqs } from "@/components/knowledge-base/document-conten
 interface DocumentUploadStepsProps {
   knowledgeBaseId: number;
   onComplete?: () => void;
+  onReviewGateChange?: (blocked: boolean) => void;
 }
 
 interface FileStatus {
@@ -108,6 +109,7 @@ const FAQ_GENERATION_MESSAGE =
 export function DocumentUploadSteps({
   knowledgeBaseId,
   onComplete,
+  onReviewGateChange,
 }: DocumentUploadStepsProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [files, setFiles] = useState<FileStatus[]>([]);
@@ -194,6 +196,91 @@ export function DocumentUploadSteps({
       setReviewDocumentId(completedDocuments[0].documentId);
     }
   }, [currentStep, completedDocuments, reviewDocumentId]);
+
+  useEffect(() => {
+    if (currentStep !== 4 || completedDocuments.length === 0) return;
+
+    let cancelled = false;
+
+    const loadAllFaqStats = async () => {
+      const results = await Promise.all(
+        completedDocuments.map(async (doc) => {
+          try {
+            const stats = await api.get(
+              `/api/knowledge-base/${knowledgeBaseId}/documents/${doc.documentId}/faqs-stats`
+            );
+            return {
+              documentId: doc.documentId,
+              stats: {
+                total: stats.total_faqs,
+                pending: stats.pending_faqs,
+                correct: stats.correct_faqs,
+                incorrect: stats.incorrect_faqs,
+              },
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      setFaqStatsByDoc((prev) => {
+        const next = { ...prev };
+        for (const item of results) {
+          if (item) {
+            next[item.documentId] = item.stats;
+          }
+        }
+        return next;
+      });
+    };
+
+    loadAllFaqStats();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStep, completedDocuments, knowledgeBaseId]);
+
+  const faqReviewState = useMemo(() => {
+    if (completedDocuments.length === 0) {
+      return { allReviewed: false, pendingCount: 0, statsLoaded: false };
+    }
+
+    let pendingCount = 0;
+    let statsLoaded = true;
+
+    for (const doc of completedDocuments) {
+      const stats = faqStatsByDoc[doc.documentId];
+      if (!stats) {
+        statsLoaded = false;
+        continue;
+      }
+      pendingCount += stats.pending;
+    }
+
+    return {
+      allReviewed: statsLoaded && pendingCount === 0,
+      pendingCount,
+      statsLoaded,
+    };
+  }, [completedDocuments, faqStatsByDoc]);
+
+  useEffect(() => {
+    if (!onReviewGateChange) return;
+    const blocked =
+      currentStep === 4 &&
+      completedDocuments.length > 0 &&
+      !faqReviewState.allReviewed;
+    onReviewGateChange(blocked);
+  }, [
+    currentStep,
+    completedDocuments.length,
+    faqReviewState.allReviewed,
+    onReviewGateChange,
+  ]);
 
   const selectedReviewFileName =
     completedDocuments.find((doc) => doc.documentId === reviewDocumentId)
@@ -408,6 +495,8 @@ export function DocumentUploadSteps({
 
   // Poll task status
   const pollTaskStatus = async (taskIds: number[]) => {
+    let pollErrors = 0;
+
     const poll = async () => {
       try {
         const response = (await api.get(
@@ -415,6 +504,8 @@ export function DocumentUploadSteps({
             ","
           )}`
         )) as TaskStatusResponse;
+
+        pollErrors = 0;
 
         // Convert string keys to numbers
         const data = Object.entries(response).reduce<TaskStatusMap>(
@@ -477,11 +568,18 @@ export function DocumentUploadSteps({
           setTimeout(poll, 2000);
         }
       } catch (error) {
+        pollErrors += 1;
+        if (pollErrors < 10) {
+          setTimeout(poll, 3000);
+          return;
+        }
         setIsLoading(false);
         toast({
           title: "Status check failed",
           description:
-            error instanceof ApiError ? error.message : "Something went wrong",
+            error instanceof ApiError
+              ? error.message
+              : "Processing may still be running. Refresh the page in a minute.",
           variant: "destructive",
         });
       }
@@ -896,16 +994,21 @@ export function DocumentUploadSteps({
                 <Settings className="mr-2 h-4 w-4" />
                 Process
               </Button>
+              <p className="text-sm text-muted-foreground text-center">
+                Local Docker can take 5–10 minutes. Keep this page open and do
+                not click Process again.
+              </p>
             </div>
           </Card>
         </TabsContent>
         <TabsContent value="4" className="mt-6">
           <Card className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
             <div>
-              <h3 className="text-lg font-medium">Extracted Content & FAQs</h3>
+              <h3 className="text-lg font-medium">Review FAQs</h3>
               <p className="text-sm text-muted-foreground">
-                Review extracted text and verify auto-generated FAQs for each
-                document.
+                Mark each auto-generated FAQ as correct or incorrect. Open
+                Extracted Content below only if you need to verify the source
+                text.
               </p>
             </div>
 
@@ -966,9 +1069,20 @@ export function DocumentUploadSteps({
               />
             )}
 
-            <Button className="w-full" onClick={() => onComplete?.()}>
-              Done
+            <Button
+              className="w-full"
+              disabled={!faqReviewState.allReviewed}
+              onClick={() => onComplete?.()}
+            >
+              Submit
             </Button>
+            {!faqReviewState.allReviewed && faqReviewState.statsLoaded && (
+              <p className="text-sm text-center text-muted-foreground">
+                {faqReviewState.pendingCount > 0
+                  ? `Please review all FAQs (${faqReviewState.pendingCount} pending) across every uploaded document before submitting.`
+                  : "Loading FAQ review status..."}
+              </p>
+            )}
           </Card>
         </TabsContent>
       </Tabs>

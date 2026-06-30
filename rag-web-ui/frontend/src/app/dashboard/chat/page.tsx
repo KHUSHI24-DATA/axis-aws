@@ -78,8 +78,16 @@ export default function ChatPage() {
   };
 
   const filteredChats = chats.filter((chat) =>
-    chat.title.toLowerCase().includes(searchTerm.toLowerCase())
+    (chat.title ?? "").toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const formatLastMessagePreview = (content: string | null | undefined) => {
+    if (!content) return "";
+    if (content.includes("__LLM_RESPONSE__")) {
+      return content.split("__LLM_RESPONSE__")[1] ?? "";
+    }
+    return content;
+  };
 
   return (
     <DashboardLayout>
@@ -143,13 +151,9 @@ export default function ChatPage() {
                   </div>
                   {(chat.messages?.length ?? 0) > 0 && chat.messages && (
                     <p className="text-sm text-muted-foreground mt-4 line-clamp-2">
-                      {chat.messages[chat.messages.length - 1].content.includes(
-                        "__LLM_RESPONSE__"
-                      )
-                        ? chat.messages[chat.messages.length - 1].content.split(
-                            "__LLM_RESPONSE__"
-                          )[1]
-                        : chat.messages[chat.messages.length - 1].content}
+                      {formatLastMessagePreview(
+                        chat.messages[chat.messages.length - 1]?.content
+                      )}
                     </p>
                   )}
                 </div>

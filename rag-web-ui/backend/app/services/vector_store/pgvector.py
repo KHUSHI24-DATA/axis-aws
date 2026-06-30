@@ -140,3 +140,42 @@ class MergedVectorStoreRetriever(BaseRetriever):
             query,
             run_manager=run_manager,
         )
+
+
+def index_documents_with_citations(docs: List[Document]) -> List[Document]:
+    """Assign 1-based citation_index metadata for inline [citation:N] markers."""
+    indexed: List[Document] = []
+    for i, doc in enumerate(docs, 1):
+        metadata = dict(doc.metadata or {})
+        metadata["citation_index"] = i
+        indexed.append(
+            Document(page_content=doc.page_content, metadata=metadata)
+        )
+    return indexed
+
+
+class CitationIndexingRetriever(BaseRetriever):
+    """Wraps a retriever and numbers each chunk for citation references."""
+
+    base_retriever: BaseRetriever
+
+    def _get_relevant_documents(
+        self,
+        query: str,
+        *,
+        run_manager: CallbackManagerForRetrieverRun,
+    ) -> List[Document]:
+        docs = self.base_retriever.invoke(query)
+        return index_documents_with_citations(docs)
+
+    async def _aget_relevant_documents(
+        self,
+        query: str,
+        *,
+        run_manager: AsyncCallbackManagerForRetrieverRun,
+    ) -> List[Document]:
+        if hasattr(self.base_retriever, "ainvoke"):
+            docs = await self.base_retriever.ainvoke(query)
+        else:
+            docs = await asyncio.to_thread(self.base_retriever.invoke, query)
+        return index_documents_with_citations(docs)

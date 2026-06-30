@@ -190,26 +190,6 @@ export function DocumentContentFaqs({
         <h3 className="text-lg font-medium">{documentName}</h3>
       )}
 
-      <Accordion type="single" collapsible defaultValue="content">
-        <AccordionItem value="content">
-          <AccordionTrigger>
-            <div className="flex items-center gap-2">
-              <span>Extracted Content</span>
-              <Badge variant="secondary">
-                {wordCount.toLocaleString()} words
-              </Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
-            <div className="max-h-[320px] overflow-y-auto rounded-lg border bg-muted/40 p-4">
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed">
-                {content?.raw_text}
-              </pre>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-
       <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
         <div className="flex items-center justify-between">
           <h4 className="text-base font-medium">Auto-generated FAQs</h4>
@@ -321,6 +301,26 @@ export function DocumentContentFaqs({
           ))
         )}
       </div>
+
+      <Accordion type="single" collapsible>
+        <AccordionItem value="content">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <span>Extracted Content</span>
+              <Badge variant="secondary">
+                {wordCount.toLocaleString()} words
+              </Badge>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="max-h-[320px] overflow-y-auto rounded-lg border bg-muted/40 p-4">
+              <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+                {content?.raw_text}
+              </pre>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 }

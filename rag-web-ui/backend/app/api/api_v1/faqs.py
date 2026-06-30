@@ -8,6 +8,9 @@ from sqlalchemy import desc
 from app.db.session import get_db
 from app.models.user import User
 from app.models.knowledge import DocumentFAQ, FAQFeedback, Document, KnowledgeBase, DocumentContent
+from app.services.faq_vector_sync import (
+    sync_verified_faq_to_vector_store,
+)
 from app.core.security import get_current_user
 from app.schemas.faq import (
     FAQResponse,
@@ -299,6 +302,10 @@ def submit_faq_feedback(
     db.add(faq_feedback)
     db.commit()
     db.refresh(faq)
+
+    document = db.query(Document).filter(Document.id == doc_id).first()
+    if document:
+        sync_verified_faq_to_vector_store(kb_id=kb_id, document=document, faq=faq)
 
     return faq
 

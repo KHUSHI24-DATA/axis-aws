@@ -155,19 +155,21 @@ export default function KnowledgeBasePage() {
                 <div className="border-t pt-4">
                   <h4 className="text-sm font-medium mb-2">Documents</h4>
                   <div className="flex flex-wrap gap-2 max-h-[400px] overflow-y-auto">
-                    {kb.documents.slice(0, 9).map((doc) => (
+                    {(kb.documents ?? []).slice(0, 9).map((doc) => {
+                      const contentType = (doc.content_type ?? "").toLowerCase();
+                      return (
                       <div
                         key={doc.id}
                         className="flex flex-col items-center gap-2 p-2 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors w-[150px] h-[150px] justify-center"
                       >
                         <div className="w-8 h-8 mb-2">
-                          {doc.content_type.toLowerCase().includes("pdf") ? (
+                          {contentType.includes("pdf") ? (
                             <FileIcon extension="pdf" {...defaultStyles.pdf} />
-                          ) : doc.content_type.toLowerCase().includes("doc") ? (
+                          ) : contentType.includes("doc") ? (
                             <FileIcon extension="doc" {...defaultStyles.docx} />
-                          ) : doc.content_type.toLowerCase().includes("txt") ? (
+                          ) : contentType.includes("txt") ? (
                             <FileIcon extension="txt" {...defaultStyles.txt} />
-                          ) : doc.content_type.toLowerCase().includes("md") ? (
+                          ) : contentType.includes("md") ? (
                             <FileIcon extension="md" {...defaultStyles.md} />
                           ) : (
                             <FileIcon
@@ -186,7 +188,8 @@ export default function KnowledgeBasePage() {
                           {new Date(doc.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                    ))}
+                    );
+                    })}
                     {(kb.documents?.length ?? 0) > 9 && (
                       <Link
                         href={`/dashboard/knowledge/${kb.id}`}

@@ -18,11 +18,13 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DocumentContentFaqs } from "@/components/knowledge-base/document-content-faqs";
 import { PageLoading } from "@/components/ui/loading-indicator";
+import { useToast } from "@/components/ui/use-toast";
 import { FileText } from "lucide-react";
 
 interface Document {
@@ -55,6 +57,49 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reviewDocument, setReviewDocument] = useState<Document | null>(null);
+  const [faqStats, setFaqStats] = useState<{
+    total: number;
+    pending: number;
+  } | null>(null);
+  const [faqStatsLoaded, setFaqStatsLoaded] = useState(false);
+  const { toast } = useToast();
+
+  const canSubmit =
+    faqStatsLoaded && (faqStats?.pending ?? 0) === 0;
+  const blockDialogClose =
+    reviewDocument != null && (!faqStatsLoaded || (faqStats?.pending ?? 0) > 0);
+
+  useEffect(() => {
+    if (reviewDocument) {
+      setFaqStats(null);
+      setFaqStatsLoaded(false);
+    }
+  }, [reviewDocument?.id]);
+
+  const handleReviewDialogChange = (open: boolean) => {
+    if (open) return;
+    if (blockDialogClose) {
+      toast({
+        title: "Review required",
+        description:
+          faqStatsLoaded && (faqStats?.pending ?? 0) > 0
+            ? `Please review all FAQs (${faqStats?.pending} pending) before submitting.`
+            : "Please wait while FAQs load, then review each one.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setReviewDocument(null);
+  };
+
+  const handleSubmitReview = () => {
+    if (!canSubmit) return;
+    setReviewDocument(null);
+    toast({
+      title: "FAQ review submitted",
+      description: "All FAQs have been reviewed for this document.",
+    });
+  };
 
   useEffect(() => {
     const fetchDocuments = async () => {
@@ -119,22 +164,23 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
         </TableHeader>
         <TableBody>
           {documents.map((doc) => {
+            const tasks = doc.processing_tasks ?? [];
+            const contentType = (doc.content_type ?? "").toLowerCase();
             const isCompleted =
-              doc.processing_tasks.length > 0 &&
-              doc.processing_tasks[0].status === "completed";
+              tasks.length > 0 && tasks[0].status === "completed";
 
             return (
               <TableRow key={doc.id}>
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6">
-                      {doc.content_type.toLowerCase().includes("pdf") ? (
+                      {contentType.includes("pdf") ? (
                         <FileIcon extension="pdf" {...defaultStyles.pdf} />
-                      ) : doc.content_type.toLowerCase().includes("doc") ? (
+                      ) : contentType.includes("doc") ? (
                         <FileIcon extension="doc" {...defaultStyles.docx} />
-                      ) : doc.content_type.toLowerCase().includes("txt") ? (
+                      ) : contentType.includes("txt") ? (
                         <FileIcon extension="txt" {...defaultStyles.txt} />
-                      ) : doc.content_type.toLowerCase().includes("md") ? (
+                      ) : contentType.includes("md") ? (
                         <FileIcon extension="md" {...defaultStyles.md} />
                       ) : (
                         <FileIcon
@@ -154,17 +200,17 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                   })}
                 </TableCell>
                 <TableCell>
-                  {doc.processing_tasks.length > 0 && (
+                  {tasks.length > 0 && (
                     <Badge
                       variant={
-                        doc.processing_tasks[0].status === "completed"
+                        tasks[0].status === "completed"
                           ? "secondary"
-                          : doc.processing_tasks[0].status === "failed"
+                          : tasks[0].status === "failed"
                             ? "destructive"
                             : "default"
                       }
                     >
-                      {doc.processing_tasks[0].status}
+                      {tasks[0].status}
                     </Badge>
                   )}
                 </TableCell>
@@ -187,9 +233,18 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
 
       <Dialog
         open={reviewDocument != null}
-        onOpenChange={(open) => !open && setReviewDocument(null)}
+        onOpenChange={handleReviewDialogChange}
       >
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-4xl max-h-[85vh] overflow-y-auto"
+          showCloseButton={!blockDialogClose}
+          onInteractOutside={(event) => {
+            if (blockDialogClose) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (blockDialogClose) event.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Extracted Content & FAQs</DialogTitle>
             <DialogDescription>
@@ -201,8 +256,28 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
               knowledgeBaseId={knowledgeBaseId}
               documentId={reviewDocument.id}
               documentName={reviewDocument.file_name}
+              onFaqsLoaded={(_documentId, stats) => {
+                setFaqStats(stats);
+                setFaqStatsLoaded(true);
+              }}
             />
           )}
+          <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+            {!canSubmit && faqStatsLoaded && (faqStats?.pending ?? 0) > 0 && (
+              <p className="text-sm text-center text-muted-foreground w-full">
+                Please review all FAQs ({faqStats?.pending} pending) before
+                submitting.
+              </p>
+            )}
+            <Button
+              type="button"
+              className="w-full"
+              disabled={!canSubmit}
+              onClick={handleSubmitReview}
+            >
+              Submit
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
